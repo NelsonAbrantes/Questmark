@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Plain Title: Glass Forever Tracker
 ## Title: |c00DFBA69Glass Forever Tracker|r
-## Notes: The objective tracker with the Glass look: it fades away when you're not using it. For WoW: Forever (beta).
+## Notes: The objective tracker with the Glass look: it fades away when you're not using it. For WoW: Forever.
 ## Author: Rethz
 ## Version: 0.1.0-forever
 ## SavedVariables: GlassForeverTrackerDB
