@@ -26,6 +26,19 @@ Core.COLORS = {
 }
 
 ---
+-- Makes a thin line (or bar) an exact number of screen pixels tall: sizes in
+-- the UI's units don't fall on whole pixels with every UI scale, and some
+-- lines came out thicker than others
+function Core.PixelHeight(region, pixels)
+  local PixelUtil = _G.PixelUtil
+  if PixelUtil and PixelUtil.SetHeight then
+    PixelUtil.SetHeight(region, pixels, pixels)
+  else
+    region:SetHeight(pixels)
+  end
+end
+
+---
 -- r, g, b of a color from Core.COLORS by its key; nil if unknown
 function Core:Color(key)
   if key == "class" then
@@ -78,6 +91,10 @@ Core.defaults = {
 
     -- Behavior
     zoneOnly = false,         -- track only the quests of the current zone
+    zoneHeaders = true,       -- quests sorted by zone, with each zone's name above them
+    currentZoneFirst = true,  -- the zone you're in at the top
+    completedLast = true,     -- quests ready to turn in at the end of their zone
+    strikeCompleted = true,   -- finished objectives struck through
     instanceMode = "normal",  -- in dungeons and raids: normal, hide, show or dungeon (only its quests)
     completeSound = true,     -- a sound when an objective or quest is done
     orcVoice = true,          -- quest ready to turn in: the orc peon's "Work complete!"

@@ -192,6 +192,7 @@ local function Build()
     { "show", "Show" },
     { "dim", "Dim" },
   }, "Dim: finished objectives (with the green check) are shown faded, so what's left stands out")
+  Checkbox(category, "strikeCompleted", "Strike finished objectives", "A thin line crosses out an objective when it's done, drawn from left to right")
 
   Header(layout, "Titles")
   Checkbox(category, "hideMainHeader", "Hide \"All Objectives\"", "Hide the tracker's main title and its minimize button. Its space stays")
@@ -216,6 +217,9 @@ local function Build()
   Slider(category, "backgroundSize", "Background size", 0, 80, 2, "How far the background reaches past the text, where it fades out")
 
   Header(layout, "Behavior")
+  Checkbox(category, "zoneHeaders", "Group quests by zone", "Sorts the quests by zone (in the order of your quest log) and writes each zone's name above its quests. Sorting waits for the end of a fight")
+  Checkbox(category, "currentZoneFirst", "Your zone first", "With quests grouped by zone, the zone you're in goes to the top")
+  Checkbox(category, "completedLast", "Quests to turn in last", "With quests grouped by zone, the quests ready to turn in go to the end of their zone")
   Checkbox(category, "zoneOnly", "Only quests in this zone", "Track only the quests of the zone you're in, and switch when you change zone. The others stay in your quest log. Changes wait for the end of a fight. Turning it off tracks them again")
   Dropdown(category, "instanceMode", "In dungeons and raids", {
     { "normal", "Like outside" },

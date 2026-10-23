@@ -24,8 +24,10 @@ Look\Background.lua
 Behavior\Fade.lua
 Look\Skin.lua
 Look\Icons.lua
+Look\Objectives.lua
 Behavior\Sounds.lua
 Behavior\ZoneFilter.lua
+Behavior\ZoneHeaders.lua
 Look\Extras.lua
 Animations\Animations.lua
 Animations\Dust.lua
