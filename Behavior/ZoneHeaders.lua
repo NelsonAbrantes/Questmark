@@ -18,6 +18,9 @@ local ICON_SIZE = 12     -- the minimize button (in a minimized zone's row)
 local GAP_HEIGHT = 10    -- the gap the game leaves between quests, where open zones get their name
 local GAP_FONT_SIZE = 9  -- an open zone's name, small to fit in it
 local GAP_ICON_SIZE = 9
+local GAP_OUTDENT = 16  -- an open zone's name starts this far left of the quests, over their icons' column
+local GAP_REACH = 4      -- how far past its thin line an open zone's name still takes the click
+local MORE_FONT_SIZE = 12 -- the "+N zones" of minimized zones with no room for their rows
 local SORT_EVERY = 2     -- seconds between two sorts at most
 local ASSETS = "Interface\\AddOns\\GlassForeverTracker\\Assets\\"
 
@@ -374,9 +377,13 @@ local function GapLabel(used, zone, block)
   label.zone, label.collapsed = zone, false
   Size(label, true)
   label:ClearAllPoints()
-  label:SetPoint("BOTTOMLEFT", block, "TOPLEFT", 0, 0)
+  label:SetPoint("BOTTOMLEFT", block, "TOPLEFT", -GAP_OUTDENT, 0)
   label:SetPoint("BOTTOMRIGHT", block, "TOPRIGHT", 0, 0)
   label:SetHeight(GAP_HEIGHT)
+  -- Easier to click: it takes the click a little above and below its line,
+  -- over the quests around it
+  label:SetHitRectInsets(0, 0, -GAP_REACH, -GAP_REACH)
+  label:SetFrameLevel(block:GetFrameLevel() + 2)
   label.outline:ClearAllPoints()
   label.outline:SetPoint("LEFT", label, "LEFT", -1, 0)
   label.text:ClearAllPoints()
@@ -411,6 +418,7 @@ local function RowLabel(used, zone, last, row)
   label.line:Show()
   label:ClearAllPoints()
   label:SetHeight(ROW_HEIGHT)
+  label:SetHitRectInsets(0, 0, 0, 0)
   label:SetPoint("TOPLEFT", last, "BOTTOMLEFT", 0, -(ROW_HEIGHT * (row - 1)) - 4)
   label:SetPoint("TOPRIGHT", last, "BOTTOMRIGHT", 0, -(ROW_HEIGHT * (row - 1)) - 4)
   SetIcon(label, true)
@@ -418,30 +426,114 @@ local function RowLabel(used, zone, last, row)
   label:Show()
 end
 
+-- The lowest point the minimized zones' rows may reach: the bottom of the
+-- tracker (its height in Edit Mode), or the top of a section shown under the
+-- quests. Nil when it isn't known yet.
+local function RoomBottom(last)
+  local tracker = _G.ObjectiveTrackerFrame
+  local limit = tracker and tracker:GetBottom()
+  local lastBottom = last:GetBottom()
+  if not limit or not lastBottom then return nil end
+  for _, other in ipairs(tracker.modules or {}) do
+    if other ~= module and other:IsShown() and other:GetHeight() > 1 then
+      local top = other:GetTop()
+      if top and top <= lastBottom + 1 and top > limit then limit = top end
+    end
+  end
+  return limit
+end
+
+-- With no room for their rows, the minimized zones go together in a small
+-- "+N zones" at the end of the first zone's name line; a click lists them,
+-- to open one
+local more
+local function MoreButton()
+  if more then return more end
+  more = CreateFrame("Button", nil, module.ContentsFrame)
+  more.text = more:CreateFontString(nil, "OVERLAY", "ObjectiveTrackerLineFont")
+  more.text:SetPoint("RIGHT", more, "RIGHT", 0, 0)
+  function more:UpdateColor()
+    local r, g, b = Core:Color(Profile().titleColor)
+    r, g, b = r or Core.GOLD.r, g or Core.GOLD.g, b or Core.GOLD.b
+    local alpha = 0.7
+    if self.hover then
+      r, g, b = r + (1 - r) * 0.4, g + (1 - g) * 0.4, b + (1 - b) * 0.4
+      alpha = 1
+    end
+    self.text:SetTextColor(r, g, b, alpha)
+  end
+  more:SetScript("OnEnter", function (self) self.hover = true; self:UpdateColor() end)
+  more:SetScript("OnLeave", function (self) self.hover = false; self:UpdateColor() end)
+  more:SetScript("OnClick", function (self)
+    local MenuUtil = _G.MenuUtil
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then
+      if collapsedList[1] then SetCollapsed(collapsedList[1], false) end
+      return
+    end
+    MenuUtil.CreateContextMenu(self, function (_, root)
+      root:CreateTitle("Minimized zones")
+      for _, zone in ipairs(collapsedList) do
+        local count = HiddenCount(zone)
+        root:CreateButton(count > 0 and (zone.." |cff999999("..count..")|r") or zone, function ()
+          SetCollapsed(zone, false)
+        end)
+      end
+    end)
+  end)
+  return more
+end
+
+local function PlaceMore(label, count)
+  local button = MoreButton()
+  local file, _, flags = label.text:GetFont()
+  if file then button.text:SetFont(file, MORE_FONT_SIZE, flags) end
+  button.text:SetText("+"..count..(count == 1 and " zone" or " zones"))
+  button:ClearAllPoints()
+  button:SetPoint("RIGHT", label, "RIGHT", 0, 0)
+  button:SetSize(button.text:GetStringWidth() + 2, MORE_FONT_SIZE + 4)
+  button:SetFrameLevel(label:GetFrameLevel() + 1)
+  label.line:ClearAllPoints()
+  label.line:SetPoint("LEFT", label.text, "RIGHT", 4, 0)
+  label.line:SetPoint("RIGHT", button, "LEFT", -4, 0)
+  button:UpdateColor()
+  button:Show()
+end
+
 function PlaceLabels()
   local used = 0
+  local moreShown = false
   if Enabled() and module:IsShown() then
-    local block, last, previousZone = module.firstBlock, nil, nil
+    local block, last, previousZone, firstGap = module.firstBlock, nil, nil, nil
     while block do
       if block.used and block:IsShown() then
         local zone = zoneOf[block.id]
         if zone and zone ~= previousZone then
           used = used + 1
           GapLabel(used, zone, block)
+          firstGap = firstGap or labels[used]
         end
         previousZone = zone
         last = block
       end
       block = block.nextBlock
     end
-    if last then
-      for row, zone in ipairs(collapsedList) do
-        used = used + 1
-        RowLabel(used, zone, last, row)
+    if last and #collapsedList > 0 then
+      -- Their rows under the last quest, if they fit in the tracker's height
+      local limit, lastBottom = RoomBottom(last), last:GetBottom()
+      local fits = not limit or lastBottom - limit >= #collapsedList * ROW_HEIGHT + 4
+      if fits or not firstGap then
+        for row, zone in ipairs(collapsedList) do
+          used = used + 1
+          RowLabel(used, zone, last, row)
+        end
+      else
+        PlaceMore(firstGap, #collapsedList)
+        moreShown = true
       end
     end
   end
   for i = used + 1, #labels do labels[i]:Hide() end
+  if more and not moreShown then more:Hide() end
 end
 
 ----
@@ -523,6 +615,26 @@ Core:OnChange(function (key)
   if key == "enable" then
     if not module or not module.EndLayout then return end
     hooksecurefunc(module, "EndLayout", PlaceLabels)
+    -- Another section laid out (a recipe tracked under the quests): the
+    -- minimized zones placed again once it's in its place, so their rows
+    -- don't go over it
+    local tracker = _G.ObjectiveTrackerFrame
+    local queued = false
+    local function PlaceSoon()
+      if queued then return end
+      queued = true
+      C_Timer.After(0, function () queued = false; PlaceLabels() end)
+    end
+    local hookedModules = { [module] = true }
+    local function HookModule(other)
+      if not other or hookedModules[other] or not other.EndLayout then return end
+      hookedModules[other] = true
+      hooksecurefunc(other, "EndLayout", PlaceSoon)
+    end
+    for _, other in ipairs(tracker and tracker.modules or {}) do HookModule(other) end
+    if tracker and tracker.AddModule then
+      hooksecurefunc(tracker, "AddModule", function (_, other) HookModule(other) end)
+    end
     for _, event in ipairs({ "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA" }) do
       events:RegisterEvent(event)
     end
