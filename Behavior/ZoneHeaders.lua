@@ -9,6 +9,7 @@ local CreateFrame = CreateFrame
 local GetTime = GetTime
 local hooksecurefunc = hooksecurefunc
 local InCombatLockdown = InCombatLockdown
+local IsInInstance = IsInInstance
 local UIErrorsFrame = UIErrorsFrame
 -- luacheck: pop
 
@@ -119,18 +120,20 @@ end
 local function CollapsedZones()
   local list, seen = {}, {}
   local hidden = HiddenQuests()
+  local any = {} -- zones with hidden quests, in the log or not
   for questID, zone in pairs(hidden) do
-    if InLog(questID) then
-      if not seen[zone] and Collapsed()[zone] then
-        seen[zone] = true
-        table.insert(list, zone)
-      end
-    else
-      hidden[questID] = nil -- no longer in the log (turned in or abandoned)
+    any[zone] = true
+    if InLog(questID) and not seen[zone] and Collapsed()[zone] then
+      seen[zone] = true
+      table.insert(list, zone)
     end
   end
+  -- A quest leaves this list only when the game says it left the log (turned
+  -- in or abandoned, see QUEST_REMOVED), not when the log doesn't list it:
+  -- right after a loading screen (leaving a dungeon) the log is empty for a
+  -- moment, and every hidden quest was forgotten, no longer tracked at all
   for zone in pairs(Collapsed()) do
-    if not seen[zone] then Collapsed()[zone] = nil end -- nothing left in it
+    if not any[zone] then Collapsed()[zone] = nil end -- nothing left in it
   end
   table.sort(list, function (a, b) return (zoneOrder[a] or 9999) < (zoneOrder[b] or 9999) end)
   return list
@@ -288,10 +291,12 @@ local function SetCollapsed(zone, collapse)
     end
   else
     Collapsed()[zone] = nil
+    -- (one the log doesn't list right now stays in the list: tracked when
+    -- the log has it again, see Orphans)
     for questID, hiddenZone in pairs(HiddenQuests()) do
-      if hiddenZone == zone then
+      if hiddenZone == zone and InLog(questID) then
         HiddenQuests()[questID] = nil
-        if InLog(questID) then Watch(questID) end
+        Watch(questID)
       end
     end
   end
@@ -557,6 +562,37 @@ local function HideInCollapsed()
   sorting = false
 end
 
+-- Hidden quests whose zone is open again (opened while the log didn't list
+-- them, just after a loading screen): tracked now that the log has them
+local function Orphans()
+  if InCombatLockdown() then return end
+  local collapsed = Collapsed()
+  for questID, zone in pairs(HiddenQuests()) do
+    if not collapsed[zone] and InLog(questID) then
+      HiddenQuests()[questID] = nil
+      Watch(questID)
+    end
+  end
+end
+
+-- Every zone minimized and nothing tracked: the tracker showed nothing, not
+-- even a row to open a zone with (minimized zones are listed under the last
+-- quest). It happened after a dungeon, where "Dungeon quests only" had
+-- stopped tracking the other quests. The zone you're in opens again (or the
+-- first one). Not inside a dungeon or raid, where that filter decides.
+local function KeepOneOpen()
+  if not Enabled() or InCombatLockdown() or C_QuestLog.GetNumQuestWatches() > 0 then return end
+  if IsInInstance() then return end
+  collapsedList = CollapsedZones()
+  if #collapsedList == 0 then return end
+  local here = _G.GetRealZoneText and _G.GetRealZoneText()
+  local zone = collapsedList[1]
+  for _, collapsed in ipairs(collapsedList) do
+    if collapsed == here then zone = collapsed break end
+  end
+  SetCollapsed(zone, false)
+end
+
 -- Quest log changes come in bursts (QUEST_LOG_UPDATE fires often): looked at
 -- once, a moment after the last one
 local checkQueued = false
@@ -566,23 +602,92 @@ local function QueueCheck()
   C_Timer.After(0.5, function ()
     checkQueued = false
     ReadZones()
+    Orphans()
     HideInCollapsed()
     collapsedList = CollapsedZones()
     SortWatches()
+    KeepOneOpen()
   end)
 end
 
+-- Arriving in a zone with quests: it opens (if minimized) and the other zones
+-- are minimized. Only when it has quests (else nothing would be left open).
+local pendingHere = false -- arrived in a fight: done after it
+local function FocusHere()
+  local here = _G.GetRealZoneText and _G.GetRealZoneText()
+  if not here or not Enabled() then return end
+  if InCombatLockdown() then pendingHere = true return end
+  pendingHere = false
+  ReadZones()
+  if Collapsed()[here] and HiddenCount(here) > 0 then
+    SetCollapsed(here, false)
+    ReadZones()
+  end
+  local others, hasHere = {}, false
+  for i = 1, C_QuestLog.GetNumQuestWatches() do
+    local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+    local zone = questID and zoneOf[questID]
+    if zone == here then
+      hasHere = true
+    elseif zone and not others[zone] then
+      others[zone] = true
+    end
+  end
+  if not hasHere then return end
+  for zone in pairs(others) do SetCollapsed(zone, true) end
+end
+
+-- (a moment after arriving: the zone's name and the quest log are ready then)
+local function OpenHere()
+  C_Timer.After(1, FocusHere)
+end
+
 local events = CreateFrame("Frame")
-events:SetScript("OnEvent", function (_, event)
+events:SetScript("OnEvent", function (_, event, ...)
   if event == "PLAYER_REGEN_ENABLED" then
     for zone, collapse in pairs(pendingToggle) do
       pendingToggle[zone] = nil
       SetCollapsed(zone, collapse)
     end
     if pendingSort then pendingSort = false; SortWatches() end
+    if pendingHere then FocusHere() end
+    QueueCheck()
+    return
+  end
+  -- A quest left the log (turned in or abandoned): no longer kept hidden
+  if event == "QUEST_REMOVED" or event == "QUEST_TURNED_IN" then
+    local questID = ...
+    if questID and HiddenQuests()[questID] then
+      HiddenQuests()[questID] = nil
+      QueueCheck()
+    end
     return
   end
   if not Enabled() or sorting then return end
+  -- A step of a quest done (the game then tracks it to show it): its zone
+  -- opens, if minimized. Hidden again with its zone, it showed for a moment
+  -- and went away. In a fight it opens after it, without a message.
+  if event == "QUEST_WATCH_UPDATE" then
+    local questID = ...
+    if not questID then return end
+    ReadZones()
+    local zone = zoneOf[questID]
+    if zone and Collapsed()[zone] then
+      if InCombatLockdown() then
+        pendingToggle[zone] = false
+      else
+        SetCollapsed(zone, false)
+      end
+    end
+    return
+  end
+  -- Arriving in a zone: it opens, if minimized (only on arrival, so it can
+  -- still be minimized while there)
+  if event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then
+    OpenHere()
+    QueueCheck()
+    return
+  end
   -- A quest tracked or accepted: sorted right away, before the tracker
   -- draws it (the tracker waits for the next frame to draw)
   if event == "QUEST_WATCH_LIST_CHANGED" or event == "QUEST_ACCEPTED" then
@@ -635,13 +740,18 @@ Core:OnChange(function (key)
     if tracker and tracker.AddModule then
       hooksecurefunc(tracker, "AddModule", function (_, other) HookModule(other) end)
     end
-    for _, event in ipairs({ "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA" }) do
+    for _, event in ipairs({ "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_LOG_UPDATE", "PLAYER_REGEN_ENABLED", "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD" }) do
       events:RegisterEvent(event)
     end
+    -- (not in every game version: an unknown event is an error)
+    pcall(events.RegisterEvent, events, "QUEST_WATCH_UPDATE")
+    pcall(events.RegisterEvent, events, "QUEST_REMOVED")
+    pcall(events.RegisterEvent, events, "QUEST_TURNED_IN")
     ReadZones()
     collapsedList = CollapsedZones()
     SortWatches()
     PlaceLabels()
+    OpenHere() -- (the login or /reload: the event may have come before this)
   elseif key == "zoneHeaders" or key == "titleColor" or key == "currentZoneFirst" or key == "completedLast" or key == "profile" then
     if not Enabled() then OpenAll() end
     ReadZones()
@@ -653,7 +763,48 @@ end)
 
 -- /gftzones: what the addon knows of each zone (to find what's wrong)
 _G.SLASH_GFTZONES1 = "/gftzones"
-_G.SlashCmdList.GFTZONES = function ()
+_G.SlashCmdList.GFTZONES = function (msg)
+  -- /gftzones open: every minimized zone opens again
+  if msg and msg:lower():match("^%s*open") then
+    if InCombatLockdown() then _G.print("Glass Forever Tracker: after the fight") return end
+    OpenAll()
+    -- Still nothing (the quests weren't hidden by a minimized zone): the
+    -- quests of the zone you're in are tracked
+    if C_QuestLog.GetNumQuestWatches() == 0 then
+      ReadZones()
+      local here = _G.GetRealZoneText and _G.GetRealZoneText()
+      for questID, zone in pairs(zoneOf) do
+        if zone == here then Watch(questID) end
+      end
+    end
+    collapsedList = CollapsedZones()
+    SortWatches()
+    PlaceLabels()
+    _G.print("|cffdfba69GFT zones|r opened every zone, tracking", C_QuestLog.GetNumQuestWatches(), "quests")
+    return
+  end
+  -- /gftzones track: every quest in the log tracked again (quests the tracker
+  -- lost), then each one goes with its zone (minimized or not)
+  if msg and msg:lower():match("^%s*track") then
+    if InCombatLockdown() then _G.print("Glass Forever Tracker: after the fight") return end
+    ReadZones()
+    sorting = true
+    for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+      local info = C_QuestLog.GetInfo(i)
+      if info and not info.isHeader and not info.isHidden and info.questID
+        and C_QuestLog.GetQuestWatchType(info.questID) == nil and not HiddenQuests()[info.questID] then
+        Watch(info.questID)
+      end
+    end
+    sorting = false
+    HideInCollapsed()
+    collapsedList = CollapsedZones()
+    lastSort = 0
+    SortWatches()
+    PlaceLabels()
+    _G.print("|cffdfba69GFT zones|r tracking", C_QuestLog.GetNumQuestWatches(), "quests")
+    return
+  end
   ReadZones()
   local print = _G.print
   print("|cffdfba69GFT zones|r map API:", _G.GetQuestUiMapID and "yes" or "no")
@@ -667,4 +818,8 @@ _G.SlashCmdList.GFTZONES = function ()
   for _, zone in ipairs(CollapsedZones()) do
     print("minimized:", zone, zoneOrder[zone] or "-")
   end
+  local hidden = 0
+  for _ in pairs(HiddenQuests()) do hidden = hidden + 1 end
+  print("tracked:", C_QuestLog.GetNumQuestWatches(), "hidden by zones:", hidden,
+    "instance:", tostring(IsInInstance()), "here:", tostring(_G.GetRealZoneText and _G.GetRealZoneText()))
 end
