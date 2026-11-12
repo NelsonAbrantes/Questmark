@@ -1544,12 +1544,27 @@ function FillText(questID, keep)
   for _, button in ipairs(rewardButtons) do button:Hide() end
   local rewards = Rewards(questID)
   local line = {}
+  -- (the experience with the tracker's own xp icon, in the experience bar's
+  -- purple with a thin dark outline; the money with the game's coins: gold,
+  -- silver and copper)
+  local size = math.floor((Core.db.profile.bookTextSize or 12) * 1.3)
   if rewards.xp and rewards.xp > 0 then
     local number = _G.BreakUpLargeNumbers and _G.BreakUpLargeNumbers(rewards.xp) or rewards.xp
-    line[#line + 1] = number.." experience"
+    -- (a little lower, so it sits on the numbers' line like the coins do)
+    line[#line + 1] = ("|T%sxpBook:%d:%d:0:%d|t %s"):format(Core.ASSETS, size, size, -math.floor(size * 0.18 + 0.5), number)
   end
-  if rewards.money and rewards.money > 0 and _G.GetCoinTextureString then
-    line[#line + 1] = _G.GetCoinTextureString(rewards.money)
+  if rewards.money and rewards.money > 0 then
+    local gold = math.floor(rewards.money / 10000)
+    local silver = math.floor(rewards.money / 100) % 100
+    local copper = rewards.money % 100
+    local coins = {}
+    local function Coin(amount, icon)
+      if amount > 0 then coins[#coins + 1] = ("%d|TInterface\\MoneyFrame\\UI-%sIcon:%d:%d:2:0|t"):format(amount, icon, size, size) end
+    end
+    Coin(gold, "Gold")
+    Coin(silver, "Silver")
+    Coin(copper, "Copper")
+    line[#line + 1] = table.concat(coins, "  ")
   end
   local any = #line > 0 or #rewards.items > 0 or #rewards.choices > 0
   rewardsHeading:SetShown(any)
