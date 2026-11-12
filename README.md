@@ -1,14 +1,13 @@
 # Questmark
 
-The objective tracker with the look of [Glass Forever](https://github.com/NelsonAbrantes/Glass-Forever), for WoW: Forever. It fades away when you're not using it and comes back when you need it.
+An objective tracker, a dungeon card and a quest book for WoW: Forever. The tracker fades away when you're not using it and comes back when you need it; the quest book opens on the quest log key.
 
-**Status: beta.** Tested on WoW: Forever only.
+**Status: beta.** Made for WoW: Forever only.
 
 ## Features
 
-- **Fade.** The tracker fades out after a few seconds. It comes back while the mouse is over it, for a while when a quest or achievement objective changes, and while Edit Mode is open.
-- **Glass look.** No header bars or panel background from the game: the Glass fading background, the font of your choice, and section titles in the Glass gold.
-- **Options** in the game's Options window (Options > AddOns > Questmark, or `/qm`).
-- **Edit Mode.** The main settings are also in the game's own Objective Tracker entry in Edit Mode.
-
-The tracker itself is still the game's: quests, achievements, quest items and everything else work as usual.
+- **Its own tracker.** Quests by zone, achievements and recipes, with their objectives, quest items and progress. It fades out after a few seconds and comes back with the mouse over it, when an objective changes, and in Edit Mode.
+- **Dungeon card.** In dungeons: the run's time, the bosses with their faces (killed ones marked), deaths, and the experience and gold made.
+- **Quest book.** The quest log key (L) opens a book: the quests by zone on the left page, and on the right the quest chosen, with a map of where it goes, its objectives, its description and its rewards. It opens and shuts as a book and turns its pages; it can be resized from its page corner.
+- **Options** in the game's Options window (Options > AddOns > Questmark, with a page of its own for the quest book), or `/qm`.
+- **Edit Mode.** Move it and change its main settings in the game's Edit Mode.
