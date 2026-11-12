@@ -1,4 +1,4 @@
-package-as: GlassForeverTracker
+package-as: Questmark
 enable-nolib-creation: no
 
 externals:
