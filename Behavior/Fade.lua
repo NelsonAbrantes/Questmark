@@ -2,15 +2,13 @@ local _, ns = ...
 local Core = ns.Core
 
 -- luacheck: push ignore 113
-local C_Timer = C_Timer
 local CreateFrame = CreateFrame
 local GetMouseFocus = GetMouseFocus
 local GetMouseFoci = GetMouseFoci
 local GetTime = GetTime
-local InCombatLockdown = InCombatLockdown
-local WorldFrame = WorldFrame
 local IsInInstance = IsInInstance
 local UIParent = UIParent
+local WorldFrame = WorldFrame
 -- luacheck: pop
 
 ----
@@ -18,10 +16,11 @@ local UIParent = UIParent
 --
 -- Fades the tracker out when you're not using it, and brings it back while
 -- the mouse is over it, when an objective changes, and while Edit Mode is
--- open. Only the tracker's transparency changes: the game allows that even in
--- combat, so the quest item buttons keep working.
+-- open. The quest item buttons fade with it (only their transparency
+-- changes, which the game allows in combat).
 
-local tracker = _G.ObjectiveTrackerFrame
+local frame = Core.frame
+local items = Core.items
 
 local state = {
   alpha = 1,          -- current visibility
@@ -38,61 +37,43 @@ local function Reveal()
 end
 Core.Reveal = Reveal
 
-local function InEditMode()
-  local manager = _G.EditModeManagerFrame
-  return manager and manager:IsShown()
-end
-
-local applying = false
 local function Apply(alpha)
-  applying = true
-  tracker:SetAlpha(alpha)
-  applying = false
-  Core.background:SetAlpha(alpha)
+  frame:SetAlpha(alpha)
+  items:SetAlpha(alpha)
 end
 
--- The slide that goes with the fade in (Animations: Glass): the tracker and
--- its background come in from a little to the right. Only out of combat, to
--- leave the tracker alone during fights.
+-- The slide that goes with the fade in (Animations: Glass): the tracker
+-- comes in from a little to the right
 local SLIDE_DISTANCE = 24
 local SLIDE_TIME = 0.35
 
-local function SlideGroup(frame)
-  local group = frame:CreateAnimationGroup()
-  local away = group:CreateAnimation("Translation")
-  away:SetOffset(SLIDE_DISTANCE, 0)
-  away:SetDuration(0)
-  away:SetOrder(1)
-  local back = group:CreateAnimation("Translation")
-  back:SetOffset(-SLIDE_DISTANCE, 0)
-  back:SetDuration(SLIDE_TIME)
-  back:SetOrder(2)
-  back:SetSmoothing("OUT")
-  return group
-end
+local slider = CreateFrame("Frame")
+slider:Hide()
+local slideStart
+slider:SetScript("OnUpdate", function ()
+  local k = math.min(1, (GetTime() - slideStart) / SLIDE_TIME)
+  Core.SetContentOffset(SLIDE_DISTANCE * (1 - k) * (1 - k))
+  if k >= 1 then slider:Hide() end
+end)
 
-local slides
 local function SlideIn()
-  if not Core:Animates() or InCombatLockdown() or InEditMode() then return end
-  slides = slides or { SlideGroup(tracker), SlideGroup(Core.background) }
-  for _, group in ipairs(slides) do
-    group:Stop()
-    group:Play()
-  end
+  if not Core:Animates() or Core.InEditMode() then return end
+  slideStart = GetTime()
+  Core.SetContentOffset(SLIDE_DISTANCE)
+  slider:Show()
 end
 
--- True while the tracker slides in (Animations.lua leaves a new quest's own
--- slide out then)
+-- True while the tracker slides in (a new quest's own slide waits then)
 function Core:TrackerSliding()
-  return slides ~= nil and slides[1]:IsPlaying()
+  return slider:IsShown()
 end
 
--- Part of the tracker (its quests, buttons...) or its background
-local function IsTrackerPart(frame)
+-- Part of the tracker (its quests, buttons...) or an item button
+local function IsTrackerPart(focus)
   for _ = 1, 20 do
-    if not frame then return false end
-    if frame == tracker or frame == Core.background then return true end
-    frame = frame.GetParent and frame:GetParent()
+    if not focus then return false end
+    if focus == frame or focus == items then return true end
+    focus = focus.GetParent and focus:GetParent()
   end
   return false
 end
@@ -106,18 +87,12 @@ local function OtherWindowOnTop()
   return false
 end
 
--- The mouse over the quests: only the part with something shown (the
--- tracker's box goes on, empty, down to its Edit Mode height, and with the
--- title hidden its room at the top stays empty too), with nothing else on top
+-- The mouse over what the tracker shows (or its item buttons), with nothing
+-- else on top
 local function MouseOverQuests()
-  if not tracker:IsVisible() then return false end
-  local empty = 0
-  local contentHeight = Core.background.contentHeight
-  if contentHeight then
-    empty = math.max(0, tracker:GetHeight() - contentHeight)
-  end
-  local topInset = Core.background.contentTopInset or 0
-  return tracker:IsMouseOver(8 - topInset, empty - 8, -8, 8) and not OtherWindowOnTop()
+  if Core.MouseOverItems() then return true end
+  if not frame:IsVisible() or (Core.contentHeight or 0) <= 0 then return false end
+  return frame:IsMouseOver(8, -8, -8, 8) and not OtherWindowOnTop()
 end
 
 -- Moves towards the target over the fade in / fade out duration
@@ -139,6 +114,7 @@ local CHECK_EVERY = 0.05
 local sinceCheck = CHECK_EVERY
 
 local ticker = CreateFrame("Frame", nil, UIParent)
+ticker:Hide()
 ticker:SetScript("OnUpdate", function (_, elapsed)
   local profile = Profile()
   sinceCheck = sinceCheck + elapsed
@@ -157,13 +133,15 @@ ticker:SetScript("OnUpdate", function (_, elapsed)
 
   -- In dungeons and raids (Options): hidden, or always shown
   local instanceMode = state.inInstance and profile.instanceMode or "normal"
+  local editMode = Core.InEditMode()
 
   local shown = not profile.fade
     or instanceMode == "show"
-    or InEditMode()
+    or (state.inInstance and profile.dungeonAlwaysShow and instanceMode ~= "hide")
+    or editMode
     or (profile.showOnMouseOver and mouseOver)
     or GetTime() < state.visibleUntil
-  if instanceMode == "hide" and not InEditMode() then
+  if instanceMode == "hide" and not editMode then
     shown = false
   end
   local target = shown and 1 or (instanceMode == "hide" and 0 or profile.fadedAlpha)
@@ -176,14 +154,6 @@ ticker:SetScript("OnUpdate", function (_, elapsed)
   if state.alpha ~= state.target then MoveAlpha(profile, elapsed) end
 end)
 
--- Something else changing the tracker's transparency (e.g. the game) gets
--- ours back
-local function KeepAlpha()
-  if not applying and math.abs(tracker:GetAlpha() - state.alpha) > 0.01 then
-    Apply(state.alpha)
-  end
-end
-
 -- Objective changes that bring the tracker back
 local PROGRESS_EVENTS = {
   "QUEST_WATCH_UPDATE",       -- an objective of a tracked quest moved
@@ -193,6 +163,7 @@ local PROGRESS_EVENTS = {
   "QUEST_REMOVED",
   "QUEST_LOG_CRITERIA_UPDATE",
   "TRACKED_ACHIEVEMENT_UPDATE",
+  "TRACKED_RECIPE_UPDATE",
 }
 
 local events = CreateFrame("Frame")
@@ -207,24 +178,17 @@ events:SetScript("OnEvent", function (_, event)
   end
 end)
 
-function Core:OnEnable()
-  Core.background:Attach(tracker)
-  Apply(state.alpha)
-  self:SecureHook(tracker, "SetAlpha", KeepAlpha)
-
-  events:RegisterEvent("PLAYER_ENTERING_WORLD")
-  events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-  for _, event in ipairs(PROGRESS_EVENTS) do
-    pcall(events.RegisterEvent, events, event)
-  end
-
-  Reveal()
-  -- Skins and settings that need the game's tracker to be ready
-  C_Timer.After(0, function () Core:Changed("enable") end)
-end
-
 Core:OnChange(function (key)
-  if key == "fade" or key == "profile" or key == "sectionAdded" then
+  if key == "enable" then
+    Apply(state.alpha)
+    events:RegisterEvent("PLAYER_ENTERING_WORLD")
+    events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    for _, event in ipairs(PROGRESS_EVENTS) do
+      pcall(events.RegisterEvent, events, event)
+    end
+    Reveal()
+    ticker:Show()
+  elseif key == "fade" or key == "profile" or key == "sectionAdded" or key == "questAdded" then
     Reveal()
   end
 end)

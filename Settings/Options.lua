@@ -3,6 +3,7 @@ local Core = ns.Core
 
 -- luacheck: push ignore 113
 local CreateFrame = CreateFrame
+local C_Timer = C_Timer
 local CreateFromMixins = CreateFromMixins
 -- luacheck: pop
 
@@ -167,7 +168,6 @@ local function Build()
   Checkbox(category, "showOnProgress", "Show on progress", "Show the tracker for a while when a quest or achievement objective changes, or you accept or turn in a quest")
 
   Header(layout, "Text")
-  Checkbox(category, "glassLook", "Glass look", "No header bars or panel background from the game, the Glass background, font, colors and icons. Off: the game's own look")
   FontDropdown(layout)
   Dropdown(category, "fontFlags", "Font outline", {
     { "", "None" },
@@ -177,17 +177,18 @@ local function Build()
   Slider(category, "headerFontSize", "Title size", 8, 24, 1, "Size of the section titles and quest names")
   Slider(category, "lineFontSize", "Objective size", 8, 24, 1, "Size of the objectives")
   Slider(category, "lineSpacing", "Line spacing", 0, 10, 1, "Extra space between the lines of a text that takes more than one line")
-  Slider(category, "width", "Width", 200, 500, 10, "Width of the tracker. Longer quest names and objectives fit on one line. The game's own is 260")
+  Slider(category, "width", "Width", 200, 500, 10, "Width of the tracker. Longer quest names and objectives fit on one line")
+  Slider(category, "maxHeight", "Height", 200, 1400, 10, "The highest the tracker gets. When there's more, scroll it with the mouse wheel")
 
   Header(layout, "Colors and icons")
   Dropdown(category, "titleColor", "Section title color", ColorChoices(),
-    "Color of the section titles (\"All Objectives\", \"Quests\", \"Campaign\"...)")
-  Dropdown(category, "questNameColor", "Quest name color", ColorChoices({ { "auto", "Game colors" } }),
-    "Color of the quest names. Game colors: as the game (or another addon) colors them, e.g. by difficulty")
-  Dropdown(category, "iconColor", "Icons", ColorChoices({ { "game", "Game icons" } }),
-    "Color of the quest icons (\"?\" and \"...\") and the minimize buttons. Game icons: the game's own round icons")
-  Checkbox(category, "iconOutline", "Icon outline", "A dark outline around the Glass icons, so they stand out on any background")
-  Checkbox(category, "glassBars", "Glass progress bars", "Progress bars (shown by some objectives) as a flat bar in the section title color, without the game's frame")
+    "Color of the titles (\"Objectives\", \"Quests\", \"Achievements\"...) and the zone names")
+  Dropdown(category, "questNameColor", "Name color", ColorChoices({ { "auto", "By difficulty" } }),
+    "Color of the names of quests, achievements and recipes. By difficulty: quests in the game's difficulty colors (grey, green, yellow, orange, red)")
+  Dropdown(category, "iconColor", "Icons", ColorChoices(),
+    "Color of the quest icons (\"?\" and \"...\") and the minimize buttons")
+  Checkbox(category, "iconOutline", "Icon outline", "A dark outline around the icons, so they stand out on any background")
+  Checkbox(category, "glassBars", "Bars in the title color", "Progress bars (shown by some objectives) in the title color. Off: green")
   Dropdown(category, "completedObjectives", "Completed objectives", {
     { "show", "Show" },
     { "dim", "Dim" },
@@ -195,19 +196,18 @@ local function Build()
   Checkbox(category, "strikeCompleted", "Strike finished objectives", "A thin line crosses out an objective when it's done, drawn from left to right")
 
   Header(layout, "Titles")
-  Checkbox(category, "hideMainHeader", "Hide \"All Objectives\"", "Hide the tracker's main title and its minimize button. Its space stays")
-  Checkbox(category, "hideSectionHeaders", "Hide section titles", "Hide the section titles (\"Quests\", \"Campaign\"...) and their minimize buttons. Their space stays")
+  Checkbox(category, "hideMainHeader", "Hide \"Objectives\"", "Hide the tracker's main title and its minimize button")
+  Checkbox(category, "hideSectionHeaders", "Hide section titles", "Hide the section titles (\"Quests\", \"Achievements\"...) and their minimize buttons")
   Checkbox(category, "questCount", "Quest count", "Show in the Quests title how many quests you have and how many fit in the quest log, like \"Quests  12/25\"")
 
   Header(layout, "Animations")
-  Dropdown(category, "sectionAnimation", "Animation style", {
+  Dropdown(category, "sectionAnimation", "Animations", {
     { "glass", "Glass" },
-    { "game", "Game" },
     { "off", "Off" },
-  }, "Glass: the addon's animations (titles lighting up, objective progress, the pulsing \"?\", new quests sliding in and writing their name, abandoned quests turning to dust...). Game: the game's own gold glows. Off: no animations")
+  }, "Glass: titles lighting up, objective progress, the pulsing \"?\", new quests sliding in and writing their name, abandoned quests turning to dust... Off: no animations")
 
   Header(layout, "Background")
-  Slider(category, "backgroundOpacity", "Background opacity", 0, 1, 0.05, "Opacity of the Glass background behind the tracker. 0 turns it off. The Opacity setting in Edit Mode changes it too")
+  Slider(category, "backgroundOpacity", "Background opacity", 0, 1, 0.05, "Opacity of the Glass background behind the tracker. 0 turns it off")
   Dropdown(category, "backgroundColor", "Background color", {
     { "black", "Black" },
     { "brown", "Dark brown" },
@@ -217,7 +217,8 @@ local function Build()
   Slider(category, "backgroundSize", "Background size", 0, 80, 2, "How far the background reaches past the text, where it fades out")
 
   Header(layout, "Behavior")
-  Checkbox(category, "zoneHeaders", "Group quests by zone", "Sorts the quests by zone (in the order of your quest log) and writes each zone's name above its quests. Sorting waits for the end of a fight")
+  Checkbox(category, "allQuests", "All quests", "Show every quest in your quest log, not only the ones you track (the game can track only so many). Stop tracking a quest (Shift + click) to hide it; track it again in the quest log to show it again")
+  Checkbox(category, "zoneHeaders", "Group quests by zone", "Sorts the quests by zone (in the order of your quest log) and writes each zone's name above its quests. Click a zone's name to minimize it. Arriving in a zone opens it and minimizes the others")
   Checkbox(category, "currentZoneFirst", "Your zone first", "With quests grouped by zone, the zone you're in goes to the top")
   Checkbox(category, "completedLast", "Quests to turn in last", "With quests grouped by zone, the quests ready to turn in go to the end of their zone")
   Checkbox(category, "zoneOnly", "Only quests in this zone", "Track only the quests of the zone you're in, and switch when you change zone. The others stay in your quest log. Changes wait for the end of a fight. Turning it off tracks them again")
@@ -226,9 +227,25 @@ local function Build()
     { "hide", "Hide the tracker" },
     { "show", "Always show it" },
     { "dungeon", "Dungeon quests only" },
-  }, "What the tracker does in dungeons and raids. Dungeon quests only: while you're inside, it tracks only the quests of that dungeon or raid, and the others again when you leave (changes wait for the end of a fight)")
+  }, "What the tracker does in dungeons and raids. Dungeon quests only: while you're inside, only the quests of that dungeon or raid show (the others stay tracked and come back when you leave)")
+  Checkbox(category, "dungeonAlwaysShow", "Always visible in dungeons", "In dungeons and raids the tracker doesn't fade out (unless \"In dungeons and raids\" is set to hide it)")
+  Checkbox(category, "dungeonInfo", "Dungeon info", "In dungeons and raids, a section at the top of the tracker with the run: how long it's taking, the bosses (killed ones checked), the experience and gold you've made and how many times you died. Right click it to start the run again")
   Checkbox(category, "completeSound", "Sound on complete", "A discreet sound when a quest objective is done, and another when a quest is ready to turn in")
   Checkbox(category, "orcVoice", "Orc voice on quest complete", "When a quest is ready to turn in, an orc peon says \"Work complete!\" instead of the usual sound. Needs Sound on complete")
+
+  -- The quest book's options: a page of their own, under the tracker's
+  -- (Options > AddOns > Glass Forever Tracker > Quest Book)
+  local book, bookLayout = Settings.RegisterVerticalLayoutSubcategory(category, "Quest Book")
+  Header(bookLayout, "Quest book")
+  Checkbox(book, "bookKey", "Quest book on the quest log key", "The key that opens the quest log (L) opens the tracker's quest book instead. Changes wait for the end of a fight")
+  Slider(book, "bookSize", "Book size", 70, 220, 5, "Size of the quest book, in % of its own size. Dragging its bottom right corner changes it too")
+  Slider(book, "bookTextSize", "Text size", 9, 18, 1, "Size of the writing in the quest book: the quests in the list, the objectives, the description and the rewards")
+  Slider(book, "bookTitleSize", "Titles size", 16, 34, 1, "Size of the quest book's titles. The headings and the zones in the list go with it")
+  Slider(book, "bookMapSize", "Map size", 40, 100, 2, "Width of the map on the right page, in % of the page")
+  Slider(book, "bookMapZoom", "Map zoom", 1, 5, 0.5, "How close the map opens on the quest's place. 1: the whole zone")
+  Checkbox(book, "bookAnimations", "Book animations", "The quest book opens and shuts as a book, its pages turn, its quests come in one after the other and a quest just done glows")
+  Checkbox(book, "bookDust", "Gold dust", "Gold dust floating over the quest book's pages")
+  Checkbox(book, "bookSounds", "Book sounds", "The sounds of the quest book opening, shutting and turning its pages")
 
   Settings.RegisterAddOnCategory(category)
   return category
@@ -241,6 +258,12 @@ Core:OnChange(function (key)
 
   _G.SLASH_GLASSFOREVERTRACKER1 = "/gft"
   _G.SlashCmdList.GLASSFOREVERTRACKER = function (input)
+    -- /gft testcard: the dungeon card, with bosses dying, anywhere
+    -- (with a name, that dungeon: /gft testcard deadmines)
+    if input and input:lower():match("^%s*testcard") then
+      Core.DungeonDemo(input:match("^%s*%S+%s*(.-)%s*$"))
+      return
+    end
     -- /gft testanim: plays the new section animation now
     if input and input:lower():match("^%s*testanim") then
       local result = Core:TestAnimation()
@@ -265,31 +288,18 @@ Core:OnChange(function (key)
     -- /gft debug: what the addon sees, to find problems
     if input and input:lower():match("^%s*debug") then
       local profile = Profile()
-      local tracker = _G.ObjectiveTrackerFrame
-      local modules, hooked = 0, 0
-      for _, module in ipairs(tracker.modules or {}) do
-        modules = modules + 1
-        if module.Header and module.Header.AddAnim and module.Header.AddAnim.gftHooked then
-          hooked = hooked + 1
-        end
-      end
-      local pois, names = Core:IconsDebug()
+      local frame = Core.frame
+      local blocks = 0
+      for _ in pairs(Core.ShownBlocks()) do blocks = blocks + 1 end
       print("|cffdfba69Glass Forever Tracker|r", Core.Version)
-      print("  glassLook", tostring(profile.glassLook), "iconColor", tostring(profile.iconColor),
-        "questNameColor", tostring(profile.questNameColor), "animation", tostring(profile.sectionAnimation))
-      print("  sections", modules, "with animation hooked", hooked, "quest icons", pois, "quest names", names)
-      local bg = Core.background
-      local texture = bg and bg:GetRegions()
-      if texture then
-        local r, g, b, a = texture:GetVertexColor()
-        print(("  background shown %s size %dx%d alpha %.2f color %.2f %.2f %.2f %.2f texture %s"):format(
-          tostring(bg:IsShown()), bg:GetWidth(), bg:GetHeight(), texture:GetAlpha(),
-          r or 0, g or 0, b or 0, a or 0, tostring(texture:GetTexture())))
-        print("  opacity", tostring(profile.backgroundOpacity), "bgsize", tostring(profile.backgroundSize),
-          "slices", tostring(texture.GetTextureSliceMargins and texture:GetTextureSliceMargins()),
-          "scale", ("%.2f"):format(bg:GetEffectiveScale()))
-      end
-      Core:IconsDetails()
+      print(("  shown %s alpha %.2f size %dx%d content %d blocks %d"):format(
+        tostring(frame:IsShown()), frame:GetAlpha(), frame:GetWidth(), frame:GetHeight(),
+        Core.contentHeight or 0, blocks))
+      local point, _, _, x, y = frame:GetPoint(1)
+      print("  position", tostring(point), tostring(x), tostring(y), "edit mode", tostring(Core.InEditMode()))
+      local game = _G.ObjectiveTrackerFrame
+      print("  game tracker", game and tostring(game:IsVisible()) or "none",
+        "animations", tostring(profile.sectionAnimation), "zones", tostring(profile.zoneHeaders))
       return
     end
     _G.Settings.OpenToCategory(Core.optionsCategory:GetID())

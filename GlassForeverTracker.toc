@@ -1,12 +1,12 @@
 ## Interface: 120100, 16001
 ## Plain Title: Glass Forever Tracker
 ## Title: |c00DFBA69Glass Forever Tracker|r
-## Notes: The objective tracker with the Glass look: it fades away when you're not using it. For WoW: Forever.
+## Notes: An objective tracker with the Glass look: it fades away when you're not using it. For WoW: Forever.
 ## Author: Rethz
 ## Version: 0.1.0-forever
 ## SavedVariables: GlassForeverTrackerDB
 ## Dependencies: Blizzard_ObjectiveTracker
-## OptionalDeps: SharedMedia, SharedMediaAdditionalFonts
+## OptionalDeps: SharedMedia, SharedMediaAdditionalFonts, ForeverDungeonJournal
 
 # Libs
 libs\LibStub\LibStub.lua
@@ -20,18 +20,25 @@ libs\LibEditMode\embed.xml
 
 # Addon
 Core.lua
-Look\Background.lua
-Behavior\Fade.lua
-Look\Skin.lua
+Look\Fonts.lua
 Look\Icons.lua
-Look\Objectives.lua
+Tracker\Frame.lua
+Look\Background.lua
+Tracker\Data.lua
+Tracker\Dungeon.lua
+Tracker\DungeonTheme.lua
+Tracker\DungeonScene.lua
+Tracker\DungeonStats.lua
+Tracker\DungeonCard.lua
+Tracker\Items.lua
+Tracker\QuestMap.lua
+Tracker\QuestText.lua
+Tracker\Tracker.lua
+Behavior\Fade.lua
 Behavior\Sounds.lua
 Behavior\ZoneFilter.lua
-Behavior\ZoneHeaders.lua
-Look\Extras.lua
 Animations\Animations.lua
 Animations\Dust.lua
-Behavior\Width.lua
 Behavior\VersionCheck.lua
 Settings\Options.lua
 Settings\EditMode.lua

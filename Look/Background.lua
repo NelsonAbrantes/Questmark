@@ -3,10 +3,9 @@ local Core = ns.Core
 
 -- luacheck: push ignore 113
 local CreateFrame = CreateFrame
-local UIParent = UIParent
 -- luacheck: pop
 
-local TEXTURE = "Interface\\AddOns\\GlassForeverTracker\\Assets\\softBackground"
+local TEXTURE = Core.ASSETS.."softBackground"
 local SOFT_EDGE = 56 -- how many pixels of the image fade out at each side
 -- Background colors offered in the options (dark, so the text stays readable)
 local BACKGROUND_COLORS = {
@@ -15,24 +14,19 @@ local BACKGROUND_COLORS = {
   blue = { 0.03, 0.06, 0.13 },
   grey = { 0.13, 0.13, 0.14 },
 }
-local UPDATE_EVERY = 0.2
+local PRESENCE_FADE = 0.4 -- seconds to fade out when the tracker empties
 
 ----
 -- Background
 --
 -- The Glass background behind the tracker: dark in the middle and fading out
--- softly on every side, like a diffuse shadow. It covers only the part of the
--- tracker that has something in it, not the whole height set in Edit Mode.
--- It's a frame of its own behind the tracker, so the game's tracker isn't
--- changed. Fade.lua sets its visibility together with the tracker's.
+-- softly on every side, like a diffuse shadow. It covers what the tracker
+-- shows, and fades out when there's nothing in it. It's part of the tracker,
+-- so it fades and slides with it.
 
-local background = CreateFrame("Frame", "GlassForeverTrackerBackground", UIParent)
-background:SetFrameStrata("BACKGROUND")
-background:EnableMouse(false)
-Core.background = background
+local frame = Core.frame
 
-local texture = Core.Smooth(background:CreateTexture(nil, "BACKGROUND")) -- slides smoothly with the tracker
-texture:SetAllPoints()
+local texture = Core.Smooth(frame:CreateTexture(nil, "BACKGROUND"))
 texture:SetTexture(TEXTURE)
 if texture.SetTextureSliceMargins then
   texture:SetTextureSliceMargins(SOFT_EDGE, SOFT_EDGE, SOFT_EDGE, SOFT_EDGE)
@@ -41,116 +35,49 @@ if texture.SetTextureSliceMargins then
   end
 end
 
--- With nothing in the tracker (no quests here, or the last one just left)
--- the background fades out, and back in when something shows
-local PRESENCE_FADE = 0.4 -- seconds
-local presence, presenceTarget = 1, 1
+local background = { texture = texture }
+Core.background = background
+
+local presence, presenceTarget = 0, 0
+local fader = CreateFrame("Frame")
+fader:Hide()
 
 -- The chosen opacity and the fade out when empty go together in the color's
 -- alpha (in this game version a texture's own alpha replaces it instead)
 function background:UpdateColor()
   local profile = Core.db.profile
-  local opacity = profile.glassLook and profile.backgroundOpacity or 0
   local color = BACKGROUND_COLORS[profile.backgroundColor] or BACKGROUND_COLORS.black
-  texture:SetVertexColor(color[1], color[2], color[3], opacity * presence)
+  texture:SetVertexColor(color[1], color[2], color[3], profile.backgroundOpacity * presence)
 end
 
--- The lowest point with something shown: the bottom of the last section, or
--- the tracker's own title when everything is collapsed. Nil when nothing is
--- shown at all.
-local function ContentBottom(tracker)
-  local bottom
-  for _, module in ipairs(tracker.modules or {}) do
-    if module:IsShown() and module:GetHeight() > 1 then
-      local moduleBottom = module:GetBottom()
-      if moduleBottom and (not bottom or moduleBottom < bottom) then
-        bottom = moduleBottom
-      end
-    end
-  end
-  if not bottom and tracker.Header and tracker.Header:IsVisible() then
-    bottom = tracker.Header:GetBottom()
-  end
-  return bottom
-end
-
--- The highest point with something shown: the tracker's top, or with its
--- title hidden the top of the first section (the game keeps the title's room
--- empty, and changing that would mean changing the game's own layout values)
-local function ContentTop(tracker)
-  if not Core.db.profile.hideMainHeader then return tracker:GetTop() end
-  local top
-  for _, module in ipairs(tracker.modules or {}) do
-    if module:IsShown() and module:GetHeight() > 1 then
-      local moduleTop = module:GetTop()
-      if moduleTop and (not top or moduleTop > top) then top = moduleTop end
-    end
-  end
-  return top or tracker:GetTop()
-end
-
-function background:UpdateSize()
-  local tracker = self.tracker
-  local trackerTop = tracker:GetTop()
-  local top, bottom = ContentTop(tracker), ContentBottom(tracker)
-  presenceTarget = (top and bottom) and 1 or 0
-  if presence ~= presenceTarget then self.fading = true end
-  if not top or not bottom or not trackerTop then
-    self.contentHeight = 0 -- nothing for the mouse to be over (Fade.lua)
-    return
-  end
-
-  -- From the tracker's top: the empty room above the content, and down to
-  -- the end of the content (Fade.lua uses both for the mouse)
-  local inset = math.floor(trackerTop - top + 0.5)
-  local height = math.floor(trackerTop - bottom + 0.5)
-  if height == self.contentHeight and inset == self.contentTopInset then return end
-  self.contentHeight, self.contentTopInset = height, inset
-
-  self:ClearAllPoints()
-  -- How far it reaches past the text (Options: background size)
+---
+-- Covers the tracker's content (`height` tall from its top); 0: nothing shown
+function background:Update(height)
   local pad = Core.db.profile.backgroundSize
-  self:SetPoint("TOPLEFT", tracker, "TOPLEFT", -pad, pad - inset)
-  self:SetPoint("BOTTOMRIGHT", tracker, "TOPRIGHT", pad, -(height + pad))
-end
-
-function background:Attach(tracker)
-  self.tracker = tracker
-  self.contentHeight = nil
-  self:UpdateColor()
-  self:UpdateSize()
-
-  -- Sections grow and shrink as quests come and go
-  local elapsedTotal = 0
-  self:SetScript("OnUpdate", function (_, elapsed)
-    elapsedTotal = elapsedTotal + elapsed
-    if elapsedTotal >= UPDATE_EVERY then
-      elapsedTotal = 0
-      self:UpdateSize()
-    end
-    -- Fading out or in: every frame, only while it moves
-    if self.fading then
-      local step = elapsed / PRESENCE_FADE
-      if presenceTarget > presence then
-        presence = math.min(presenceTarget, presence + step)
-      else
-        presence = math.max(presenceTarget, presence - step)
-      end
-      self:UpdateColor()
-      if presence == presenceTarget then self.fading = false end
-    end
-  end)
-end
-
-Core:OnChange(function (key)
-  if key == "backgroundOpacity" or key == "backgroundColor" or key == "glassLook" or key == "profile" then
-    background:UpdateColor()
+  presenceTarget = height > 0 and 1 or 0
+  if height > 0 then
+    texture:ClearAllPoints()
+    texture:SetPoint("TOPLEFT", frame, "TOPLEFT", -pad, pad)
+    texture:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", pad, -(height + pad))
   end
+  if presence ~= presenceTarget then fader:Show() end
+end
+
+fader:SetScript("OnUpdate", function (_, elapsed)
+  local step = elapsed / PRESENCE_FADE
+  if presenceTarget > presence then
+    presence = math.min(presenceTarget, presence + step)
+  else
+    presence = math.max(presenceTarget, presence - step)
+  end
+  background:UpdateColor()
+  if presence == presenceTarget then fader:Hide() end
 end)
 
 Core:OnChange(function (key)
-  if key == "backgroundSize" or key == "profile" then
-    background.contentHeight = nil -- place it again
-    if background.tracker then background:UpdateSize() end
+  if key == "backgroundOpacity" or key == "backgroundColor" or key == "profile" or key == "enable" then
+    background:UpdateColor()
+  elseif key == "backgroundSize" then
+    Core:Changed("layout")
   end
 end)

@@ -4,10 +4,9 @@ local Core = ns.Core
 ----
 -- EditMode
 --
--- Adds the main Glass Forever Tracker settings to the game's own Objective
--- Tracker entry in Edit Mode, next to its Height and Opacity. They're the
--- same settings as in the Options window. The game's own Opacity and Text
--- Size there control the Glass background and the text sizes.
+-- The tracker in Edit Mode: it can be moved there (Tracker.lua), and its
+-- main settings show beside it when it's selected. They're the same
+-- settings as in the Options window.
 
 local function RoundTo2(value)
   return math.floor(value * 100 + 0.5) / 100
@@ -26,9 +25,8 @@ local function ColorValues(extra)
 end
 
 local function Setup()
-  local LEM = LibStub("LibEditMode", true)
-  local system = _G.Enum and _G.Enum.EditModeSystem and _G.Enum.EditModeSystem.ObjectiveTracker
-  if not LEM or not system or not LEM.AddSystemSettings then return end
+  local LEM = Core.LEM
+  if not LEM or not LEM.AddFrameSettings then return end
 
   local profile = function () return Core.db.profile end
   local defaults = Core.defaults.profile
@@ -38,10 +36,10 @@ local function Setup()
     Core:Changed(key)
   end
 
-  LEM:AddSystemSettings(system, {
+  LEM:AddFrameSettings(Core.frame, {
     {
       name = "Width",
-      desc = "Width of the tracker. The game's own is 260",
+      desc = "Width of the tracker",
       kind = LEM.SettingType.Slider,
       default = defaults.width,
       minValue = 200,
@@ -49,6 +47,17 @@ local function Setup()
       valueStep = 10,
       get = function () return profile().width end,
       set = function (_, value) Set("width", value) end,
+    },
+    {
+      name = "Height",
+      desc = "The highest the tracker gets. When there's more, scroll it with the mouse wheel",
+      kind = LEM.SettingType.Slider,
+      default = defaults.maxHeight,
+      minValue = 200,
+      maxValue = 1400,
+      valueStep = 10,
+      get = function () return profile().maxHeight end,
+      set = function (_, value) Set("maxHeight", value) end,
     },
     {
       name = "Fade out",
@@ -70,14 +79,6 @@ local function Setup()
       set = function (_, value) Set("holdTime", value) end,
     },
     {
-      name = "Glass look",
-      desc = "The Glass background and font, without the game's header bars",
-      kind = LEM.SettingType.Checkbox,
-      default = defaults.glassLook,
-      get = function () return profile().glassLook end,
-      set = function (_, value) Set("glassLook", value) end,
-    },
-    {
       name = "Faded visibility",
       desc = "How visible the tracker stays when faded. 0 hides it completely",
       kind = LEM.SettingType.Slider,
@@ -91,7 +92,7 @@ local function Setup()
     },
     {
       name = "Title size",
-      desc = "Size of the section titles and quest names. Text Size (above) sets it 2 bigger than the objectives; this fine-tunes it",
+      desc = "Size of the titles and the names of quests, achievements and recipes",
       kind = LEM.SettingType.Slider,
       default = defaults.headerFontSize,
       minValue = 8,
@@ -99,6 +100,17 @@ local function Setup()
       valueStep = 1,
       get = function () return profile().headerFontSize end,
       set = function (_, value) Set("headerFontSize", value) end,
+    },
+    {
+      name = "Objective size",
+      desc = "Size of the objectives",
+      kind = LEM.SettingType.Slider,
+      default = defaults.lineFontSize,
+      minValue = 8,
+      maxValue = 24,
+      valueStep = 1,
+      get = function () return profile().lineFontSize end,
+      set = function (_, value) Set("lineFontSize", value) end,
     },
     {
       name = "Line spacing",
@@ -110,6 +122,18 @@ local function Setup()
       valueStep = 1,
       get = function () return profile().lineSpacing end,
       set = function (_, value) Set("lineSpacing", value) end,
+    },
+    {
+      name = "Background opacity",
+      desc = "Opacity of the Glass background behind the tracker. 0 turns it off",
+      kind = LEM.SettingType.Slider,
+      default = defaults.backgroundOpacity,
+      minValue = 0,
+      maxValue = 1,
+      valueStep = 0.05,
+      formatter = RoundTo2,
+      get = function () return profile().backgroundOpacity end,
+      set = function (_, value) Set("backgroundOpacity", RoundTo2(value)) end,
     },
     {
       name = "Background size",
@@ -146,46 +170,18 @@ local function Setup()
     },
     {
       name = "Icon color",
-      desc = "Color of the quest icons and minimize buttons. Game icons: the game's own",
+      desc = "Color of the quest icons and minimize buttons",
       kind = LEM.SettingType.Dropdown,
       default = defaults.iconColor,
-      values = ColorValues({ { text = "Game icons", value = "game" } }),
+      values = ColorValues(),
       get = function () return profile().iconColor end,
       set = function (_, value) Set("iconColor", value) end,
     },
   })
-
-  -- The game's own Opacity and Text Size settings drive the Glass background
-  -- and the text sizes, so they keep doing something with the Glass look.
-  -- Only changes made in Edit Mode count: the game also applies them when it
-  -- loads, which would undo the sizes chosen in the Options window.
-  local manager = _G.ObjectiveTrackerManager
-  if manager then
-    local function InEditMode()
-      local frame = _G.EditModeManagerFrame
-      return frame and frame:IsShown()
-    end
-
-    hooksecurefunc(manager, "SetOpacity", function (_, opacity)
-      if InEditMode() then
-        Set("backgroundOpacity", RoundTo2((opacity or 0) / 100))
-      end
-    end)
-
-    hooksecurefunc(manager, "SetTextSize", function (_, size)
-      if not size then return end
-      if InEditMode() then
-        profile().lineFontSize = size
-        profile().headerFontSize = size + 2 -- like the game: titles 2 bigger
-      end
-      -- The game has just put its own fonts back: Glass' again
-      Core:Changed("lineFontSize")
-    end)
-  end
 end
 
 Core:OnChange(function (key)
-  if key == "enable" and not Core.editModeReady then
+  if key == "editModeReady" and not Core.editModeReady then
     Core.editModeReady = true
     Setup()
   end

@@ -7,12 +7,15 @@ _G.GlassForeverTracker = Core
 Core.Version = "0.1.0-forever"
 Core.LSM = LibStub("LibSharedMedia-3.0")
 Core.listeners = {} -- filled while the files load, see Core:OnChange
+Core.ASSETS = "Interface\\AddOns\\GlassForeverTracker\\Assets\\"
 
 -- The Glass gold, for titles and highlights
 Core.GOLD = { r = 223 / 255, g = 186 / 255, b = 105 / 255 }
 
 -- Colors offered in the options (the Glass Forever accent colors), in order
 Core.COLORS = {
+  -- The Glass Forever chat's own gold (the default)
+  { "glass", "Glass gold", { 223 / 255, 186 / 255, 105 / 255 } },
   -- Brighter and yellower than the Glass gold, so it stands apart from bronze
   { "gold", "Gold", { 1.00, 0.82, 0.22 } },
   { "white", "White", { 1, 1, 1 } },
@@ -55,6 +58,34 @@ function Core:Color(key)
   return nil
 end
 
+---
+-- The title color (Options), gold if unknown
+function Core:TitleColor()
+  local r, g, b = self:Color(self.db.profile.titleColor)
+  return r or self.GOLD.r, g or self.GOLD.g, b or self.GOLD.b
+end
+
+---
+-- The dungeon card's color: the brighter gold it had before the Glass gold
+-- became the title color (another title color chosen in the options counts)
+function Core:CardColor()
+  if self.db.profile.titleColor == "glass" then return self:Color("gold") end
+  return self:TitleColor()
+end
+
+---
+-- A color made lighter (mixed with white), for things under the mouse
+function Core.Lighter(r, g, b, amount)
+  amount = amount or 0.4
+  return r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount
+end
+
+---
+-- False for values the game marks as secret (they can't be read)
+function Core.Readable(value)
+  return value ~= nil and not (issecretvalue and issecretvalue(value))
+end
+
 Core.defaults = {
   profile = {
     -- Fade
@@ -67,7 +98,6 @@ Core.defaults = {
     showOnProgress = true,    -- comes back for a while when an objective changes
 
     -- Look
-    glassLook = true,         -- no game backgrounds, Glass font
     font = "Friz Quadrata TT",
     fontFlags = "",
     headerFontSize = 14,      -- section titles ("Quests") and quest names
@@ -76,28 +106,44 @@ Core.defaults = {
     backgroundColor = "black", -- black, brown, blue or grey
     backgroundSize = 36,      -- how far the background reaches past the text
     lineSpacing = 0,          -- extra space between the lines of a text
-    width = 260,              -- tracker width (the game's own is 260)
-    titleColor = "gold",      -- section titles ("Quests"); see Core.COLORS
-    questNameColor = "auto",  -- quest names; "auto" keeps the game's colors
-    iconColor = "gold",       -- quest and minimize icons; "game" = the game's own
-    iconOutline = true,       -- a dark outline around the Glass icons
-    hideMainHeader = false,   -- hide the "All Objectives" title
+    width = 260,              -- tracker width
+    maxHeight = 650,          -- the highest the tracker gets; past it, it scrolls (0: no limit)
+    titleColor = "glass",     -- section titles ("Quests"), zone names, bars; see Core.COLORS
+    questNameColor = "auto",  -- quest names; "auto" = by difficulty, like the game
+    iconColor = "glass",      -- quest and minimize icons
+    iconOutline = true,       -- a dark outline around the icons
+    hideMainHeader = false,   -- hide the "Objectives" title
     hideSectionHeaders = false, -- hide the section titles ("Quests"...)
 
     questCount = true,        -- "Quests 12/25" in the Quests title
     completedObjectives = "show", -- finished objectives: show or dim
-    glassBars = true,         -- progress bars in the Glass style
-    sectionAnimation = "glass", -- animations of sections, quests and objectives: glass, game or off
+    glassBars = true,         -- progress bars in the title color (off: the game's green)
+    sectionAnimation = "glass", -- animations: glass or off
 
     -- Behavior
-    zoneOnly = false,         -- track only the quests of the current zone
+    allQuests = true,         -- every quest in the quest log, not only the tracked ones
+    bookKey = true,           -- the quest log's key (L) opens the quest book
+    bookSize = 100,           -- the quest book's size (% of its own; also its corner)
+    bookTextSize = 12,        -- its writing and list
+    bookTitleSize = 24,       -- its titles (headings and zones go with it)
+    bookMapSize = 78,         -- its map (% of the page's width)
+    bookMapZoom = 2.5,        -- how close its map opens on the quest's place
+    bookAnimations = true,    -- it opens, shuts and turns its pages as a book
+    bookDust = true,          -- gold dust over its pages
+    bookSounds = true,        -- its sounds (opening, shutting, page turns)
+    zoneOnly = false,         -- only the quests of the current zone
     zoneHeaders = true,       -- quests sorted by zone, with each zone's name above them
     currentZoneFirst = true,  -- the zone you're in at the top
     completedLast = true,     -- quests ready to turn in at the end of their zone
     strikeCompleted = true,   -- finished objectives struck through
-    instanceMode = "normal",  -- in dungeons and raids: normal, hide, show or dungeon (only its quests)
+    instanceMode = "dungeon", -- in dungeons and raids: normal, hide, show or dungeon (only its quests)
+    dungeonInfo = true,
+    dungeonAlwaysShow = true, -- in dungeons and raids the tracker doesn't fade out       -- in dungeons and raids: time, bosses, experience and gold of the run
     completeSound = true,     -- a sound when an objective or quest is done
     orcVoice = true,          -- quest ready to turn in: the orc peon's "Work complete!"
+
+    -- Where the tracker is, per Edit Mode layout (layout name -> point, x, y)
+    positions = {},
   }
 }
 
@@ -111,12 +157,27 @@ Core.defaults = {
 function Core:OnInitialize()
   self.db = LibStub("AceDB-3.0"):New("GlassForeverTrackerDB", self.defaults, true)
 
+  -- Settings of the version that restyled the game's tracker
+  local profile = self.db.profile
+  if profile.sectionAnimation == "game" then profile.sectionAnimation = "glass" end
+  if profile.iconColor == "game" then profile.iconColor = "glass" end
+  -- The Glass gold became the default (once: "Gold" can still be chosen)
+  if not profile.glassGoldDefault then
+    profile.glassGoldDefault = true
+    if profile.titleColor == "gold" then profile.titleColor = "glass" end
+    if profile.iconColor == "gold" then profile.iconColor = "glass" end
+  end
+
   local function Refresh() self:Changed("profile") end
   self.db.RegisterCallback(self, "OnProfileChanged", Refresh)
   self.db.RegisterCallback(self, "OnProfileCopied", Refresh)
   self.db.RegisterCallback(self, "OnProfileReset", Refresh)
 
   self:Changed("init")
+end
+
+function Core:OnEnable()
+  self:Changed("enable")
 end
 
 function Core:OnChange(listener)
@@ -130,11 +191,9 @@ function Core:Changed(key, ...)
 end
 
 ---
--- True if the addon's animations are on: the Glass look with the Animation
--- style set to Glass
+-- True if the addon's animations are on (Options: Animations)
 function Core:Animates()
-  local profile = self.db.profile
-  return profile.glassLook and profile.sectionAnimation == "glass"
+  return self.db.profile.sectionAnimation ~= "off"
 end
 
 ---
@@ -157,17 +216,14 @@ function Core.Smooth(texture)
 end
 
 ---
--- Growing animations go wrong in this game version: what they grow can
--- become huge for a moment (a gold glow over half the screen). The game's
--- own tracker animations keep their other steps but no longer grow.
-function Core.NoGrowing(group)
-  if not group or group.gftNoGrowing or not group.GetAnimations then return end
-  group.gftNoGrowing = true
-  for _, animation in ipairs({ group:GetAnimations() }) do
-    if animation:GetObjectType() == "Scale" then
-      if animation.SetScaleFrom then animation:SetScaleFrom(1, 1) end
-      if animation.SetScaleTo then animation:SetScaleTo(1, 1) end
-      if animation.SetScale then animation:SetScale(1, 1) end
-    end
+-- Old entries of a "when" list are dropped, so it doesn't keep growing over
+-- a session
+function Core.DropOld(list, now, age)
+  for key, when in pairs(list) do
+    if now - when > age then list[key] = nil end
   end
 end
+
+-- Quests tracked again by the addon (the zone filter), not by you: they come
+-- in without the new quest animations. questID -> when.
+Core.rewatched = {}

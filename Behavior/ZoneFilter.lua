@@ -9,7 +9,6 @@ local CreateFrame = CreateFrame
 local GetRealZoneText = GetRealZoneText
 local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
-local IsInInstance = IsInInstance
 -- luacheck: pop
 
 ----
@@ -20,8 +19,7 @@ local IsInInstance = IsInInstance
 -- zone or accept a quest. The quests stay in your quest log. It's like
 -- clicking them yourself, which the game only allows out of combat, so in
 -- combat it waits until the fight is over. Turning it off tracks again the
--- quests it had stopped tracking. The same happens inside a dungeon or raid
--- with "In dungeons and raids: Dungeon quests only".
+-- quests it had stopped tracking.
 
 local function Profile() return Core.db.profile end
 
@@ -31,15 +29,13 @@ local function Untracked()
   return Core.db.char.zoneUntracked
 end
 
--- The filter runs with "Only quests in this zone" on, or inside a dungeon or
--- raid with "In dungeons and raids: Dungeon quests only". Inside, the
--- zone is the dungeon itself.
+-- The filter runs with "Only quests in this zone" on
+-- ("Dungeon quests only" no longer stops tracking quests: the tracker only
+-- hides the others while you're inside, see Data.lua. The quests it had
+-- stopped tracking are tracked again.)
 local function Active()
-  local profile = Profile()
-  if profile.zoneOnly then return true end
-  if profile.instanceMode ~= "dungeon" then return false end
-  local inInstance, instanceType = IsInInstance()
-  return inInstance and (instanceType == "party" or instanceType == "raid") or false
+  -- (with every quest showing, the tracker leaves the others out itself)
+  return Profile().zoneOnly and not Profile().allQuests and true or false
 end
 
 local function IsTracked(questID)
@@ -48,18 +44,9 @@ end
 
 local pendingCombat = false
 
--- Tracks a quest again. The game then shows it as if it were new: noted, so
--- it comes in without the new quest animations (Skin.lua)
-Core.rewatched = {}
-
--- Old entries of a "when" list are dropped, so it doesn't keep growing over
--- a session
-local function DropOld(list, now, age)
-  for key, when in pairs(list) do
-    if now - when > age then list[key] = nil end
-  end
-end
-Core.DropOld = DropOld
+-- Tracks a quest again: noted, so it comes back without the new quest
+-- animations (Tracker.lua)
+local DropOld = Core.DropOld
 
 local function Watch(questID)
   local now = GetTime()
@@ -102,14 +89,8 @@ local leaving = {}  -- questID -> fading out before it stops being tracked
 
 -- The tracker's block of a quest, if it's shown
 local function FindBlock(questID)
-  local tracker = _G.ObjectiveTrackerFrame
-  for _, module in ipairs(tracker and tracker.modules or {}) do
-    for _, blocks in pairs(module.usedBlocks or {}) do
-      for _, block in pairs(blocks) do
-        if block.id == questID and block:IsVisible() then return block end
-      end
-    end
-  end
+  local block = Core.FindBlock(questID)
+  return block and block:IsVisible() and block or nil
 end
 
 local ApplySoon

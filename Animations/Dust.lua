@@ -4,6 +4,8 @@ local Core = ns.Core
 -- luacheck: push ignore 113
 local CreateFrame = CreateFrame
 local GetTime = GetTime
+local C_Timer = C_Timer
+local C_QuestLog = C_QuestLog
 local wipe = wipe
 local geterrorhandler = geterrorhandler
 -- luacheck: pop
@@ -25,7 +27,7 @@ local MAX_PARTICLES = 220
 -- the letters vanish from right to left while specks in their color drift
 -- off to the right and up. Nothing runs until a quest is abandoned.
 
-local tracker = _G.ObjectiveTrackerFrame
+local tracker = Core.frame
 
 ----
 -- Pictures of a quest (taken the moment the game says it was abandoned,
@@ -61,12 +63,8 @@ end
 
 -- The quest's block in the tracker, if it's shown
 local function FindBlock(questID)
-  for _, module in ipairs(tracker.modules or {}) do
-    for _, blocks in pairs(module.usedBlocks or {}) do
-      local block = blocks[questID]
-      if block and block:IsVisible() then return block end
-    end
-  end
+  local block = Core.FindBlock(questID)
+  return block and block:IsVisible() and block or nil
 end
 
 -- A picture of a quest: its name and objectives, top to bottom
@@ -74,10 +72,10 @@ local function TakePicture(questID)
   local block = FindBlock(questID)
   if not block then return nil end
   local items = {}
-  local header = TextItem(block.HeaderText)
+  local header = TextItem(block.title)
   if header then table.insert(items, header) end
   local lines = {}
-  for _, line in pairs(block.usedLines or {}) do table.insert(lines, line) end
+  for _, line in pairs(block.lines.used) do table.insert(lines, line) end
   table.sort(lines, function (a, b) return (a:GetTop() or 0) > (b:GetTop() or 0) end)
   for _, line in ipairs(lines) do
     local item = TextItem(line.Text)
@@ -153,15 +151,11 @@ local function HideQuestsBelow()
   local trackerTop = tracker:GetTop()
   if not hideTop or not trackerTop then return end
   local limit = trackerTop + hideTop + 1
-  for _, module in ipairs(tracker.modules or {}) do
-    for _, blocks in pairs(module.usedBlocks or {}) do
-      for _, block in pairs(blocks) do
-        local top = block:IsVisible() and block:GetTop()
-        if top and top <= limit and not hiddenBlocks[block] then
-          hiddenBlocks[block] = true
-          block:SetAlpha(0)
-        end
-      end
+  for _, block in pairs(Core.ShownBlocks()) do
+    local top = block:IsVisible() and block:GetTop()
+    if top and top <= limit and not hiddenBlocks[block] then
+      hiddenBlocks[block] = true
+      block:SetAlpha(0)
     end
   end
 end
@@ -272,13 +266,16 @@ local function Snap(picture)
     })
   end
   active[effect] = true
-  -- Hide what moves into its place (the highest abandoned quest counts)
-  local top = picture.items[1].y
-  if not hideTop or top > hideTop then hideTop = top end
+  -- The tracker waits while it turns to dust: the quest's place stays empty
+  -- (the quest itself hidden under its copy), then what's under it glides up
+  -- into it (Tracker.lua)
+  if Core.HoldLayout then
+    Core.HoldLayout(DISSOLVE_TIME + (#picture.items - 1) * LINE_STAGGER + 0.1)
+  end
   revealStart = nil
   lastUpdate = GetTime()
   driver:Show()
-  Core:Changed("sectionAdded") -- shows the tracker while it happens
+  if Core.Reveal then Core.Reveal() end -- shows the tracker while it happens
 end
 
 ----
@@ -289,24 +286,35 @@ events:SetScript("OnEvent", function (_, event, questID)
   if event == "QUEST_TURNED_IN" then
     turnedIn[questID] = GetTime()
   elseif event == "QUEST_REMOVED" then
-    local turned = turnedIn[questID]
-    turnedIn[questID] = nil
-    if turned and GetTime() - turned < 2 then return end
-    -- Abandoned: the game takes it out of the tracker a moment after this,
-    -- so the picture is taken now, while it's still there
+    -- Turned in, not abandoned: the game may say so a moment after this, so
+    -- it's decided a moment later (the tracker waits meanwhile, the quest
+    -- still in it for its picture). A quest the game marks as done was
+    -- turned in too.
+    local flagged = C_QuestLog and C_QuestLog.IsQuestFlaggedCompleted
+    if flagged and flagged(questID) then return end
     if not Core:Animates() then
-      Core:AnimLog("quest removed, no dust: animations aren't Glass", tostring(questID))
-    else
+      Core:AnimLog("quest removed, no dust: animations are off", tostring(questID))
+      return
+    end
+    if Core.HoldLayout then Core.HoldLayout(0.2) end
+    C_Timer.After(0.08, function ()
+      local turned = turnedIn[questID]
+      turnedIn[questID] = nil
+      if turned and GetTime() - turned < 2 then return end
+      if flagged and flagged(questID) then return end
       -- A problem here shows once and never stops the game's own handling
       local ok, problem = pcall(function ()
         local block = FindBlock(questID)
         local picture = TakePicture(questID)
         Core:AnimLog("quest removed", tostring(questID), block and "shown" or "not in the tracker",
           picture and "dust" or "no dust")
-        if picture then Snap(picture) end
+        if picture then
+          Snap(picture)
+          if block then block:SetAlpha(0) end
+        end
       end)
       if not ok then geterrorhandler()(problem) end
-    end
+    end)
   end
 end)
 
