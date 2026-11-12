@@ -3,6 +3,7 @@
 ## Title: |c00DFBA69Questmark|r
 ## Notes: An objective tracker, a dungeon card, and a quest book in place of the quest log. For WoW: Forever.
 ## Author: Rethz
+## IconTexture: Interface\AddOns\Questmark\Assets\logo
 ## Version: 0.1.0-forever
 ## SavedVariables: QuestmarkDB
 ## Dependencies: Blizzard_ObjectiveTracker
