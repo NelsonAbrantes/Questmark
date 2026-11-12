@@ -1,4 +1,4 @@
-"""Renders small marks for the quest book (Glass Forever Tracker) with
+"""Renders small marks for the quest book (Questmark) with
 Blender, seen from above on a transparent background:
 - arrow.tga: an ornate arrow in red ink, pointing right (at the quest
   open in the book)

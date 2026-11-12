@@ -77,7 +77,7 @@ local wasDone = {} -- each quest: done the last time the list was filled
 
 local fonts = {}
 local function Font(key, file, size, spacing, flags)
-  local font = CreateFont("GlassForeverTrackerBook"..key)
+  local font = CreateFont("QuestmarkBook"..key)
   font:SetFont(file, size, flags or "")
   if not font:GetFont() then font:SetFont("Fonts\\FRIZQT__.TTF", size, flags or "") end
   font:SetShadowOffset(0, 0)
@@ -609,7 +609,7 @@ end
 
 -- The book itself: its frame, pages, shadow, ribbon and close button
 local function BuildBook(gameBook)
-  book = CreateFrame("Frame", "GlassForeverTrackerQuestBook", _G.UIParent)
+  book = CreateFrame("Frame", "QuestmarkQuestBook", _G.UIParent)
   book:SetFrameStrata("DIALOG")
   book:SetSize(BOOK_W, BOOK_H)
   -- (the spellbook's pages: as big on the screen as the game's spellbook)
@@ -976,6 +976,7 @@ local function Build()
   BuildEvents()
 end
 
+
 ----
 -- Animations (only while the book is open, and only with the animations on
 -- in the options):
@@ -987,6 +988,11 @@ end
 -- - gold dust floats over the pages
 -- One driver runs them all, and only while the book shows.
 
+-- (in a scope of its own: the file has more locals than the game allows in
+-- one; what the rest uses is declared outside it)
+local closing, flip, Animates
+local dust = {}
+do
 local OPEN_IN, OPEN_TURN, OPEN_WRITING = 0.14, 0.7, 0.2 -- the shut book shows, its cover opens, the writing comes
 local CLOSE_WRITING, CLOSE_TURN, CLOSE_OUT = 0.1, 0.55, 0.16 -- the writing goes, the page folds over, the book goes
 local sheetEnd = 0 -- where the turning sheet ends, from the spine (left: below 0)
@@ -1007,13 +1013,12 @@ local FLASH_TIME = 1.6
 local DUST = 16
 local GOLD = { 1.0, 0.80, 0.35 }
 
-local driver, opening, closing, flip, cascadeT
+local driver, opening, cascadeT
 local strips, sheetShadow, flipLayer, flipQuest = {}, nil, nil, nil
 local flashing = {} -- rows glowing: row = time left
-local dust = {}
 
 local function Ease(p) return p * p * (3 - 2 * p) end
-local function Animates() return Core:Animates() and Core.db.profile.bookAnimations end
+function Animates() return Core:Animates() and Core.db.profile.bookAnimations end
 
 -- The pages' width out from the spine, 0 (shut) to 1 (open)
 local function Unfold(p)
@@ -1390,6 +1395,7 @@ function ResetAnimations()
   end
   for _, row in ipairs(rows) do row:SetAlpha(1) end
 end
+end
 
 ----
 -- Filling the pages
@@ -1709,7 +1715,8 @@ end
 -- not saved: off, the key opens the game's quest log again. Bindings can't
 -- change in a fight, so a change then waits for its end.
 
-local keyButton = CreateFrame("Button", "GlassForeverTrackerBookKey", _G.UIParent)
+do
+local keyButton = CreateFrame("Button", "QuestmarkBookKey", _G.UIParent)
 keyButton:SetScript("OnClick", function () Core.ShowQuestList() end)
 
 local boundKeys -- the keys bound now (nil: none yet)
@@ -1739,10 +1746,12 @@ keyButton:RegisterEvent("UPDATE_BINDINGS")
 Core:OnChange(function (key)
   if key == "bookKey" or key == "profile" then BindKey() end
 end)
+end
 
 ----
 -- The book's options (Options, Quest book), applied at once
 
+do
 -- Its fonts' sizes: the writing's, and the titles' (headings and zones go
 -- with them)
 local function UpdateFonts()
@@ -1785,3 +1794,4 @@ Core:OnChange(function (key)
     dust.layer:SetShown(Core.db.profile.bookDust and book:IsShown())
   end
 end)
+end

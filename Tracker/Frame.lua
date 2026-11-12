@@ -19,11 +19,11 @@ local UIParent = UIParent
 --   in the tracker, which would then be locked in combat too) and are placed
 --   beside their quests, again after a fight if something moved during it.
 
-local frame = CreateFrame("Frame", "GlassForeverTrackerFrame", UIParent)
+local frame = CreateFrame("Frame", "QuestmarkFrame", UIParent)
 frame:SetSize(Core.defaults.profile.width, 1)
 frame:SetFrameStrata("LOW")
 frame:SetClampedToScreen(true)
-frame.editModeName = "Glass Forever Tracker"
+frame.editModeName = "Questmark"
 Core.frame = frame
 
 -- What the tracker shows goes in Core.content, inside a scrolling frame:
@@ -57,7 +57,7 @@ function Core.SizeContent(width, height)
   holder:SetSize(width + MARGIN_X * 2, math.max(1, height) + MARGIN_Y * 2)
 end
 
-local items = CreateFrame("Frame", "GlassForeverTrackerItems", UIParent)
+local items = CreateFrame("Frame", "QuestmarkItems", UIParent)
 items:SetAllPoints(UIParent)
 items:SetFrameStrata("LOW")
 items:SetFrameLevel(frame:GetFrameLevel() + 30)

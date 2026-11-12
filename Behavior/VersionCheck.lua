@@ -13,7 +13,7 @@ local IsInRaid = IsInRaid
 local LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE
 -- luacheck: pop
 
-local PREFIX = "GlassFvTracker"
+local PREFIX = "Questmark"
 local SEND_EVERY = 60  -- at most one announcement a minute
 local REPLY_EVERY = 300 -- at most one reply to the same player in 5 minutes
 
@@ -27,7 +27,7 @@ local REPLY_EVERY = 300 -- at most one reply to the same player in 5 minutes
 -- the news spreads.
 
 local function Notify(message)
-  print("|c00DFBA69Glass Forever Tracker|r: " .. message)
+  print("|c00DFBA69Questmark|r: " .. message)
 end
 
 -- "0.1.0-forever" -> 0, 1, 0. Only versions named this way count.

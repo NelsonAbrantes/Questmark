@@ -56,7 +56,7 @@ local function Watch(questID)
 end
 
 -- Quests with their marker in the zone you're in: questID -> true, or a
--- text saying why not (for /gft zone). The game's own "on the map" and its
+-- text saying why not (for /qm zone). The game's own "on the map" and its
 -- list of quests on this zone's map both include nearby zones (in Mulgore
 -- they kept The Barrens' quests), so each marker is checked: it must sit
 -- inside this map, and the quest's own map must be this one.
@@ -167,10 +167,10 @@ local function Apply()
   end
 end
 
--- /gft zone: the zone, the map and, for each quest, why it's kept or not
+-- /qm zone: the zone, the map and, for each quest, why it's kept or not
 function Core:ZoneDebug()
   local onThisMap, mapID = MarkersHere()
-  print("|cffdfba69Glass Forever Tracker|r zone filter")
+  print("|cffdfba69Questmark|r zone filter")
   print("  zoneOnly", tostring(Profile().zoneOnly), "instanceMode", tostring(Profile().instanceMode),
     "active", tostring(Active()), "combat wait", tostring(pendingCombat))
   print("  zone", tostring(GetRealZoneText()), "map", tostring(mapID))

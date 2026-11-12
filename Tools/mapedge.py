@@ -1,4 +1,4 @@
-"""Makes the quest book's map edges (Glass Forever Tracker): a torn, burnt
+"""Makes the quest book's map edges (Questmark): a torn, burnt
 piece of an old map.
 - mapMask.tga: white, its alpha the torn shape (a mask for the map's picture)
 - mapBurn.tga: the scorched rim along the torn edge, to lay over the map

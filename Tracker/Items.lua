@@ -35,7 +35,7 @@ local function UpdateCooldown(button)
 end
 
 local function CreateButton(i)
-  local button = CreateFrame("Button", "GlassForeverTrackerItem"..i, holder, "SecureActionButtonTemplate")
+  local button = CreateFrame("Button", "QuestmarkItem"..i, holder, "SecureActionButtonTemplate")
   button:SetSize(SIZE, SIZE)
   button:RegisterForClicks("AnyUp", "AnyDown")
   button:SetAttribute("type", "item")

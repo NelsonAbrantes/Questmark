@@ -15,10 +15,10 @@ local CreateFont = CreateFont
 -- - zone: the small zone names between quests
 
 local fonts = {
-  header = CreateFont("GlassForeverTrackerHeaderFont"),
-  line = CreateFont("GlassForeverTrackerLineFont"),
-  zone = CreateFont("GlassForeverTrackerZoneFont"),
-  title = CreateFont("GlassForeverTrackerTitleFont"), -- the dungeon's name, bigger
+  header = CreateFont("QuestmarkHeaderFont"),
+  line = CreateFont("QuestmarkLineFont"),
+  zone = CreateFont("QuestmarkZoneFont"),
+  title = CreateFont("QuestmarkTitleFont"), -- the dungeon's name, bigger
 }
 Core.fonts = fonts
 

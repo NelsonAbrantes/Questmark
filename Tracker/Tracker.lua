@@ -819,7 +819,7 @@ function Core.FindBlock(questID)
 end
 
 ---
--- A title shown (for /gft testanim)
+-- A title shown (for /qm testanim)
 function Core.FirstHeader()
   return headers.used.quests or headers.used.achievements or headers.used.recipes or headers.used.all
 end
@@ -1067,7 +1067,7 @@ local function SetupEditMode()
     positions[layoutName or "_last"] = position
     positions._last = position
     ApplyPosition()
-  end, DEFAULT, "Glass Forever Tracker")
+  end, DEFAULT, "Questmark")
 
   LEM:RegisterCallback("layout", function (name)
     layoutName = name

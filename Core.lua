@@ -2,12 +2,12 @@ local AddonName, ns = ...
 
 local Core = LibStub("AceAddon-3.0"):NewAddon(AddonName, "AceHook-3.0")
 ns.Core = Core
-_G.GlassForeverTracker = Core
+_G.Questmark = Core
 
 Core.Version = "0.1.0-forever"
 Core.LSM = LibStub("LibSharedMedia-3.0")
 Core.listeners = {} -- filled while the files load, see Core:OnChange
-Core.ASSETS = "Interface\\AddOns\\GlassForeverTracker\\Assets\\"
+Core.ASSETS = "Interface\\AddOns\\Questmark\\Assets\\"
 
 -- The Glass gold, for titles and highlights
 Core.GOLD = { r = 223 / 255, g = 186 / 255, b = 105 / 255 }
@@ -15,7 +15,7 @@ Core.GOLD = { r = 223 / 255, g = 186 / 255, b = 105 / 255 }
 -- Colors offered in the options (the Glass Forever accent colors), in order
 Core.COLORS = {
   -- The Glass Forever chat's own gold (the default)
-  { "glass", "Glass gold", { 223 / 255, 186 / 255, 105 / 255 } },
+  { "glass", "Warm gold", { 223 / 255, 186 / 255, 105 / 255 } },
   -- Brighter and yellower than the Glass gold, so it stands apart from bronze
   { "gold", "Gold", { 1.00, 0.82, 0.22 } },
   { "white", "White", { 1, 1, 1 } },
@@ -155,7 +155,7 @@ Core.defaults = {
 -- announcements carry more (e.g. "questAdded" carries the quest block).
 
 function Core:OnInitialize()
-  self.db = LibStub("AceDB-3.0"):New("GlassForeverTrackerDB", self.defaults, true)
+  self.db = LibStub("AceDB-3.0"):New("QuestmarkDB", self.defaults, true)
 
   -- Settings of the version that restyled the game's tracker
   local profile = self.db.profile
@@ -197,7 +197,7 @@ function Core:Animates()
 end
 
 ---
--- /gft animlog: writes in chat when animations start, to find problems
+-- /qm animlog: writes in chat when animations start, to find problems
 function Core:AnimLog(...)
   if not self.animLog then return end
   print(("|cffdfba69GFT|r %.2f"):format(GetTime()), ...)

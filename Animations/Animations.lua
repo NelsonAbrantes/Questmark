@@ -405,7 +405,7 @@ Core:OnChange(function (key, object)
   end
 end)
 
--- /gft testanim: the new section animation on the first title shown
+-- /qm testanim: the new section animation on the first title shown
 function Core:TestAnimation()
   if not Core:Animates() then return "off" end
   local header = Core.FirstHeader and Core.FirstHeader()

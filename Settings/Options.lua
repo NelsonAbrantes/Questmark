@@ -7,13 +7,13 @@ local C_Timer = C_Timer
 local CreateFromMixins = CreateFromMixins
 -- luacheck: pop
 
-local TITLE = "Glass Forever Tracker"
+local TITLE = "Questmark"
 
 ----
 -- Options
 --
 -- The addon's page in the game's Options window (Options > AddOns > Glass
--- Forever Tracker), built with the game's own controls. /gft opens it.
+-- Forever Tracker), built with the game's own controls. /qm opens it.
 
 local function Profile() return Core.db.profile end
 
@@ -31,7 +31,7 @@ end
 local function ProfileSetting(category, key, varType, name, round)
   return _G.Settings.RegisterProxySetting(
     category,
-    "GLASSFOREVERTRACKER_"..key:upper(),
+    "QUESTMARK_"..key:upper(),
     varType,
     name,
     Core.defaults.profile[key],
@@ -202,18 +202,18 @@ local function Build()
 
   Header(layout, "Animations")
   Dropdown(category, "sectionAnimation", "Animations", {
-    { "glass", "Glass" },
+    { "glass", "All" },
     { "off", "Off" },
-  }, "Glass: titles lighting up, objective progress, the pulsing \"?\", new quests sliding in and writing their name, abandoned quests turning to dust... Off: no animations")
+  }, "All: titles lighting up, objective progress, the pulsing \"?\", new quests sliding in and writing their name, abandoned quests turning to dust... Off: no animations")
 
   Header(layout, "Background")
-  Slider(category, "backgroundOpacity", "Background opacity", 0, 1, 0.05, "Opacity of the Glass background behind the tracker. 0 turns it off")
+  Slider(category, "backgroundOpacity", "Background opacity", 0, 1, 0.05, "Opacity of the background behind the tracker. 0 turns it off")
   Dropdown(category, "backgroundColor", "Background color", {
     { "black", "Black" },
     { "brown", "Dark brown" },
     { "blue", "Dark blue" },
     { "grey", "Dark grey" },
-  }, "Color of the Glass background")
+  }, "Color of the background")
   Slider(category, "backgroundSize", "Background size", 0, 80, 2, "How far the background reaches past the text, where it fades out")
 
   Header(layout, "Behavior")
@@ -234,7 +234,7 @@ local function Build()
   Checkbox(category, "orcVoice", "Orc voice on quest complete", "When a quest is ready to turn in, an orc peon says \"Work complete!\" instead of the usual sound. Needs Sound on complete")
 
   -- The quest book's options: a page of their own, under the tracker's
-  -- (Options > AddOns > Glass Forever Tracker > Quest Book)
+  -- (Options > AddOns > Questmark > Quest Book)
   local book, bookLayout = Settings.RegisterVerticalLayoutSubcategory(category, "Quest Book")
   Header(bookLayout, "Quest book")
   Checkbox(book, "bookKey", "Quest book on the quest log key", "The key that opens the quest log (L) opens the tracker's quest book instead. Changes wait for the end of a fight")
@@ -256,42 +256,43 @@ Core:OnChange(function (key)
   if not (_G.Settings and _G.Settings.RegisterVerticalLayoutCategory) then return end
   Core.optionsCategory = Build()
 
-  _G.SLASH_GLASSFOREVERTRACKER1 = "/gft"
-  _G.SlashCmdList.GLASSFOREVERTRACKER = function (input)
-    -- /gft testcard: the dungeon card, with bosses dying, anywhere
-    -- (with a name, that dungeon: /gft testcard deadmines)
+  _G.SLASH_QUESTMARK1 = "/qm"
+  _G.SLASH_QUESTMARK2 = "/questmark"
+  _G.SlashCmdList.QUESTMARK = function (input)
+    -- /qm testcard: the dungeon card, with bosses dying, anywhere
+    -- (with a name, that dungeon: /qm testcard deadmines)
     if input and input:lower():match("^%s*testcard") then
       Core.DungeonDemo(input:match("^%s*%S+%s*(.-)%s*$"))
       return
     end
-    -- /gft testanim: plays the new section animation now
+    -- /qm testanim: plays the new section animation now
     if input and input:lower():match("^%s*testanim") then
       local result = Core:TestAnimation()
       if result == "off" then
-        print("|cffdfba69Glass Forever Tracker|r: animations are off (Options > Animations)")
+        print("|cffdfba69Questmark|r: animations are off (Options > Animations)")
       elseif not result then
-        print("|cffdfba69Glass Forever Tracker|r: no section shown to animate")
+        print("|cffdfba69Questmark|r: no section shown to animate")
       end
       return
     end
-    -- /gft animlog: animation messages in chat, on or off
+    -- /qm animlog: animation messages in chat, on or off
     if input and input:lower():match("^%s*animlog") then
       Core.animLog = not Core.animLog
-      print("|cffdfba69Glass Forever Tracker|r: animation log", Core.animLog and "on" or "off")
+      print("|cffdfba69Questmark|r: animation log", Core.animLog and "on" or "off")
       return
     end
-    -- /gft zone: what "Only quests in this zone" decides for each quest
+    -- /qm zone: what "Only quests in this zone" decides for each quest
     if input and input:lower():match("^%s*zone") then
       Core:ZoneDebug()
       return
     end
-    -- /gft debug: what the addon sees, to find problems
+    -- /qm debug: what the addon sees, to find problems
     if input and input:lower():match("^%s*debug") then
       local profile = Profile()
       local frame = Core.frame
       local blocks = 0
       for _ in pairs(Core.ShownBlocks()) do blocks = blocks + 1 end
-      print("|cffdfba69Glass Forever Tracker|r", Core.Version)
+      print("|cffdfba69Questmark|r", Core.Version)
       print(("  shown %s alpha %.2f size %dx%d content %d blocks %d"):format(
         tostring(frame:IsShown()), frame:GetAlpha(), frame:GetWidth(), frame:GetHeight(),
         Core.contentHeight or 0, blocks))

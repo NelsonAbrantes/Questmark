@@ -370,7 +370,7 @@ end
 
 
 ----
--- /gft testcard: the card of a made-up run of The Drowned City, anywhere,
+-- /qm testcard: the card of a made-up run of The Drowned City, anywhere,
 -- with a boss dying every two seconds (and experience, gold and a death
 -- coming in), to see it and its animations
 
@@ -398,7 +398,7 @@ local function FindDungeon(typed)
   return found
 end
 
--- The names to try, for /gft testcard with a name it doesn't know
+-- The names to try, for /qm testcard with a name it doesn't know
 local function DungeonNames()
   local journal = _G.ForeverDungeonJournal_NS
   local names = {}
@@ -414,7 +414,7 @@ function Core.DungeonDemo(typed)
   if typed and typed ~= "" then
     name = FindDungeon(typed)
     if not name then
-      print("|cffdfba69Glass Forever Tracker|r: no dungeon called \""..typed.."\". Try one of:")
+      print("|cffdfba69Questmark|r: no dungeon called \""..typed.."\". Try one of:")
       print("  "..table.concat(DungeonNames(), ", "))
       return
     end

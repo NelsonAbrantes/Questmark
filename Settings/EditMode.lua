@@ -125,7 +125,7 @@ local function Setup()
     },
     {
       name = "Background opacity",
-      desc = "Opacity of the Glass background behind the tracker. 0 turns it off",
+      desc = "Opacity of the background behind the tracker. 0 turns it off",
       kind = LEM.SettingType.Slider,
       default = defaults.backgroundOpacity,
       minValue = 0,
@@ -137,7 +137,7 @@ local function Setup()
     },
     {
       name = "Background size",
-      desc = "How far the Glass background reaches past the text, where it fades out",
+      desc = "How far the background reaches past the text, where it fades out",
       kind = LEM.SettingType.Slider,
       default = defaults.backgroundSize,
       minValue = 0,

@@ -1,4 +1,4 @@
-"""Renders the Glass Forever Tracker quest book with Blender (Cycles).
+"""Renders the Questmark quest book with Blender (Cycles).
 
 A heavy old tome lying open, seen from the front and above with an
 orthographic camera tilted 20 deg. Thick page blocks swell up from a deep,

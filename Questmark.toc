@@ -1,10 +1,10 @@
 ## Interface: 120100, 16001
-## Plain Title: Glass Forever Tracker
-## Title: |c00DFBA69Glass Forever Tracker|r
-## Notes: An objective tracker with the Glass look: it fades away when you're not using it. For WoW: Forever.
+## Plain Title: Questmark
+## Title: |c00DFBA69Questmark|r
+## Notes: An objective tracker that fades away when you're not using it, a dungeon card, and a quest book in place of the quest log. For WoW: Forever.
 ## Author: Rethz
 ## Version: 0.1.0-forever
-## SavedVariables: GlassForeverTrackerDB
+## SavedVariables: QuestmarkDB
 ## Dependencies: Blizzard_ObjectiveTracker
 ## OptionalDeps: SharedMedia, SharedMediaAdditionalFonts, ForeverDungeonJournal
 
