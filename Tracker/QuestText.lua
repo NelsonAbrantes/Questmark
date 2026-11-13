@@ -16,7 +16,10 @@ local BOOK_W, BOOK_H = 880, 550
 local LEFT_X, RIGHT_X = 110, 506 -- where the writing starts on each page
 local TEXT_W = 264 -- the writing's width on a page
 local TOP, BOTTOM = 60, 104 -- the writing's margins on the book
-local MAP_W, MAP_H = 264, 176 -- the map on the right page
+local MAP_W, MAP_H = 264, 176 -- the map, over the right page (Show map)
+local MAP_TOP = 34 -- room above it, for the way back to the quest
+local MAP_WIDER = 40 -- it goes past the writing's width, into the margins
+local SWITCH_TIME = 0.25 -- the map coming over the page: it fades in
 local GAME_LEFT = "spellbook-background-evergreen-left"
 local GAME_RIGHT = "spellbook-background-evergreen-right"
 local GAME_RIBBON = "spellbook-background-evergreen-ribbon"
@@ -60,12 +63,14 @@ local ZONE = { 1.0, 0.82, 0.0 } -- the zones in the list: the quests' own yellow
 
 local book, list, listContent, count, rightContent, textScroll, textContent
 local title, tags, parts, hint, mapHolder, rewardsHeading, rewardsText, chooseText, stamp
-local STAMP_W = 100 -- "Completed" by a quest's title
+local STAMP_W = 130 -- "Completed" stamped over a quest done: its width,
+local STAMP_ALPHA = 0.78 -- and how strong (the writing shows through)
 local rows, rewardButtons = {}, {} -- made as needed and kept
 local selected -- the quest on the right page
 local pending -- a refresh waiting
 local turning -- a page turn going (the tracker's own book): { t, questID, filled }
 local CloseBook, StartOpen, StartFlip, Flash, ResetAnimations -- (Animations, below)
+local BookDust -- (the open quest abandoned turns to dust, below)
 local pageLeft, pageRight -- the spellbook's pages (nil with the tracker's own book)
 local ribbonMark -- the spellbook's ribbon, in the middle
 local bookShadow -- the soft shadow under the spellbook's pages
@@ -74,6 +79,9 @@ local UpdateMarker -- (the mark of the quest open, below)
 local writingAlpha = 1 -- the writing's alpha (it fades as the book opens and shuts)
 local shown = {} -- the book's writing and buttons, faded in as it opens
 local wasDone = {} -- each quest: done the last time the list was filled
+-- The map over the right page (Show map); it stays for the next quest
+-- opened from it; the open quest has a map
+local mapView, wantMap, selectedHasMap, ShowMapView
 
 local fonts = {}
 local function Font(key, file, size, spacing, flags)
@@ -91,7 +99,7 @@ Font("Zone", "Fonts\\MORPHEUS.TTF", 15)
 Font("Text", "Fonts\\FRIZQT__.TTF", 12, 2)
 Font("Small", "Fonts\\FRIZQT__.TTF", 11)
 Font("Badge", "Fonts\\FRIZQT__.TTF", 10)
-Font("Stamp", "Fonts\\MORPHEUS.TTF", 17)
+Font("Stamp", "Fonts\\MORPHEUS.TTF", 18)
 Font("Button", "Fonts\\MORPHEUS.TTF", 13)
 Core.bookFonts = fonts
 
@@ -299,7 +307,11 @@ local function RewardButton(i)
   button.name:SetMaxLines(2)
   button:SetScript("OnEnter", function (self)
     local tooltip = _G.GameTooltip
-    tooltip:SetOwner(self, "ANCHOR_RIGHT")
+    -- (just above the reward, from its icon: "to the right" went past the
+    -- book's edge, the game pushing it back over the page)
+    tooltip:SetOwner(self, "ANCHOR_NONE")
+    tooltip:ClearAllPoints()
+    tooltip:SetPoint("BOTTOMLEFT", self.icon, "TOPLEFT", -4, 6)
     if self.kind == "currency" then
       pcall(tooltip.SetQuestLogCurrency, tooltip, "reward", self.index, selected)
     else
@@ -370,8 +382,9 @@ local function QuestMenu(owner, questID)
 end
 
 ----
--- Buttons under the open quest, as in the game's quest log: Track (or
--- Untrack), Share (in a group, a quest that can be shared) and Abandon.
+-- Buttons under the open quest, as in the game's quest log: Show map (the
+-- map over the page, when the quest has one), Track (or Untrack), Share (in
+-- a group, a quest that can be shared) and Abandon.
 -- Words in the book's red ink, brighter under the mouse, faded when they
 -- can't be used.
 
@@ -383,15 +396,21 @@ local function UpdateButtons()
   local bar = pageButtons.bar
   if not bar then return end
   local questID = selected
-  bar:SetShown(questID ~= nil)
+  -- (not over the map)
+  bar:SetShown(questID ~= nil and not (mapView and mapView:IsShown()))
   if not questID then return end
-  pageButtons[1].label:SetText(InTracker(questID) and "Untrack" or "Track")
-  pageButtons[2]:SetEnabled(C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID)
+  pageButtons[1]:SetEnabled(selectedHasMap and true or false)
+  pageButtons[2].label:SetText(InTracker(questID) and "Untrack" or "Track")
+  pageButtons[3]:SetEnabled(C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID)
     and _G.IsInGroup() and true or false)
-  pageButtons[3]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
+  pageButtons[4]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
   local width = -BUTTON_GAP
   for _, button in ipairs(pageButtons) do
-    button:SetWidth(button.label:GetStringWidth() + 8)
+    -- (the titles' font reaches past its own measure: room so no letter is cut)
+    local label = button.label
+    local textWidth = (label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth()) + 12
+    label:SetWidth(textWidth)
+    button:SetWidth(textWidth)
     button:Paint()
     width = width + button:GetWidth() + BUTTON_GAP
   end
@@ -402,8 +421,11 @@ local function BuildButtons()
   local bar = CreateFrame("Frame", nil, rightContent)
   bar:SetHeight(BUTTONS_H)
   bar:SetPoint("BOTTOM")
+  -- (over the page's dog-eared corner, which covered the last button)
+  bar:SetFrameLevel(book:GetFrameLevel() + 75)
   pageButtons.bar = bar
   local actions = {
+    { "Show map", function () ShowMapView(true) end },
     { "Track", function (questID)
       ToggleTrack(questID)
       -- (its word follows once the tracker has it)
@@ -478,7 +500,7 @@ local function UpdateFades()
   local left, top = book:GetLeft(), book:GetTop()
   for _, one in ipairs(faded) do
     local scroll, content = one.scroll, one.content
-    if scroll:IsShown() and scroll:GetTop() and left then
+    if scroll:IsVisible() and scroll:GetTop() and left then
       local x0 = math.floor(scroll:GetLeft() - left) - 6
       local x1 = math.ceil(scroll:GetRight() - left) + 6
       local y0, y1 = top - scroll:GetTop(), top - scroll:GetBottom()
@@ -574,8 +596,8 @@ end
 -- The map on the right page: as wide as chosen (Options: % of the page's
 -- width), the shape of the zones' maps
 function MapSize()
-  local width = math.floor(TEXT_W * (Core.db.profile.bookMapSize or 78) / 100)
-  return width, math.floor(width * 2 / 3)
+  local size = (Core.db.profile.bookMapSize or 100) / 100
+  return math.floor((TEXT_W + MAP_WIDER) * size), math.floor((BOOK_H - TOP - BOTTOM - MAP_TOP) * size)
 end
 
 local function GameBook()
@@ -670,6 +692,7 @@ local function Row(i)
       if button == "RightButton" then
         QuestMenu(self, self.questID)
       else
+        wantMap = false
         Turn(self.questID)
       end
     end
@@ -789,6 +812,7 @@ local function BuildBook(gameBook)
   -- page corner, its tip lifting under the mouse (its frames, one after the
   -- other); the chat's size grabber without it.
   local grip = CreateFrame("Button", nil, book)
+  book.grip = grip -- (hidden while a sheet turns over it, see BuildFlip)
   grip:SetFrameLevel(book:GetFrameLevel() + 70)
   grip:RegisterForClicks("RightButtonUp")
   shown[#shown + 1] = grip
@@ -913,9 +937,6 @@ local function BuildRight()
   shown[#shown + 1] = rightContent
   rightContent:SetSize(TEXT_W, BOOK_H - TOP - BOTTOM)
   rightContent:SetPoint("TOPLEFT", RIGHT_X, -TOP)
-  mapHolder = CreateFrame("Frame", nil, rightContent)
-  mapHolder:SetSize(MAP_W, MAP_H)
-  mapHolder:SetPoint("TOP")
 
   textScroll = CreateFrame("ScrollFrame", nil, rightContent)
   textContent = CreateFrame("Frame", nil, textScroll)
@@ -928,25 +949,36 @@ local function BuildRight()
   title:SetPoint("TOPLEFT")
   title:SetWidth(TEXT_W)
   title:SetTextColor(unpack(RED))
-  -- "Completed" by the title of a quest done, in green ink
-  -- (in the writing: it scrolls with the title)
-  stamp = CreateFrame("Frame", nil, textContent)
-  stamp:SetSize(STAMP_W, 24)
-  stamp:SetPoint("TOPRIGHT", 0, -2)
+  -- A quest done: "Completed" stamped in green ink at the bottom right of the page,
+  -- like a rubber stamp's mark (Assets/stampFrame, see
+  -- Tools/stamp.py). Over the writing, which shows through it; it doesn't
+  -- scroll, and goes with the writing when the map shows.
+  stamp = CreateFrame("Frame", nil, textScroll)
+  stamp:SetSize(STAMP_W, STAMP_W * 224 / 512)
+  stamp:SetPoint("BOTTOMRIGHT", -2, 6)
+  -- (over the page's dog-eared corner, which covered its right end; away
+  -- while a page turns, see StartFlip)
+  stamp:SetFrameLevel(book:GetFrameLevel() + 75)
+  stamp:SetAlpha(STAMP_ALPHA)
+  local frame = Core.Smooth(stamp:CreateTexture(nil, "ARTWORK"))
+  frame:SetTexture(Core.ASSETS.."stampFrame")
+  frame:SetAllPoints()
+  frame:SetVertexColor(GREEN[1], GREEN[2], GREEN[3])
   local word = stamp:CreateFontString(nil, "OVERLAY")
   word:SetFontObject(fonts.Stamp)
   word:SetText("Completed")
   word:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-  word:SetPoint("RIGHT")
+  word:SetPoint("CENTER")
+  -- (stamped down: from big and faint to its place)
   local thump = stamp:CreateAnimationGroup()
   local grow = thump:CreateAnimation("Scale")
-  grow:SetScaleFrom(1.8, 1.8)
+  grow:SetScaleFrom(1.7, 1.7)
   grow:SetScaleTo(1, 1)
   grow:SetDuration(0.22)
   grow:SetSmoothing("IN")
   local fade = thump:CreateAnimation("Alpha")
   fade:SetFromAlpha(0)
-  fade:SetToAlpha(1)
+  fade:SetToAlpha(STAMP_ALPHA)
   fade:SetDuration(0.16)
   stamp.thump = thump
   stamp:Hide()
@@ -1022,11 +1054,15 @@ local function BuildEvents()
   book:SetScript("OnShow", function (self)
     self:RegisterEvent("QUEST_LOG_UPDATE")
     self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    self:RegisterEvent("QUEST_REMOVED")
+    self:RegisterEvent("QUEST_TURNED_IN")
     Sound("IG_QUEST_LOG_OPEN")
   end)
   book:SetScript("OnHide", function (self)
     self:UnregisterEvent("QUEST_LOG_UPDATE")
     self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+    self:UnregisterEvent("QUEST_REMOVED")
+    self:UnregisterEvent("QUEST_TURNED_IN")
     Core.HideQuestMap()
     ResetAnimations()
     rightContent:SetAlpha(1)
@@ -1034,7 +1070,30 @@ local function BuildEvents()
     if not closeSounded then Sound(CLOSE_SOUND) end
     closeSounded = false
   end)
-  book:SetScript("OnEvent", function ()
+  -- The open quest abandoned: its writing turns to dust first (BookDust,
+  -- below), then the page empties. Not when it was turned in (the game may
+  -- say so a moment after it says the quest left the log).
+  local turnedIn, dusting
+  local function Emptied(questID)
+    dusting = false
+    if selected == questID then Select(nil) end
+  end
+  book:SetScript("OnEvent", function (_, event, questID)
+    if event == "QUEST_TURNED_IN" then
+      turnedIn = questID
+      return
+    elseif event == "QUEST_REMOVED" then
+      if not questID or questID ~= selected then return end
+      dusting = true
+      _G.C_Timer.After(0.08, function ()
+        local flagged = C_QuestLog.IsQuestFlaggedCompleted
+        local done = turnedIn == questID or (flagged and flagged(questID))
+        if done or not book:IsShown() or not BookDust(function () Emptied(questID) end) then
+          Emptied(questID)
+        end
+      end)
+      return
+    end
     if pending then return end
     pending = true
     _G.C_Timer.After(REFRESH_WAIT, function ()
@@ -1042,7 +1101,7 @@ local function BuildEvents()
       if not book:IsShown() then return end
       -- (a quest given or abandoned leaves the right page)
       if selected and not C_QuestLog.GetLogIndexForQuestID(selected) then
-        Select(nil)
+        if not dusting then Select(nil) end
       elseif selected and not turning then
         FillText(selected, true)
       end
@@ -1051,10 +1110,60 @@ local function BuildEvents()
   end)
 end
 
+----
+-- The map over the whole right page (Show map); "« Quest" above it goes back
+-- to the writing. It's on the page, so it turns with it.
+
+-- Shows the map over the page, or the writing again
+function ShowMapView(show)
+  show = show and selectedHasMap and true or false
+  if show == mapView:IsShown() then return end
+  mapView:SetShown(show)
+  textScroll:SetShown(not show and selected ~= nil)
+  if show and Core:Animates() and book:IsShown() then mapView.fadeIn:Play() end
+  UpdateButtons()
+  UpdateFades()
+end
+
+local function BuildMapView()
+  mapView = CreateFrame("Frame", nil, rightContent)
+  mapView:SetAllPoints()
+  mapView:Hide()
+  mapView.fadeIn = mapView:CreateAnimationGroup()
+  local fade = mapView.fadeIn:CreateAnimation("Alpha")
+  fade:SetFromAlpha(0)
+  fade:SetToAlpha(1)
+  fade:SetDuration(SWITCH_TIME)
+  fade:SetSmoothing("OUT")
+
+  -- Back to the quest: "« Quest" in the titles' red ink, brighter under the mouse
+  local back = CreateFrame("Button", nil, mapView)
+  back:SetPoint("TOPLEFT", -MAP_WIDER / 2, 0)
+  back:SetHeight(24)
+  local label = back:CreateFontString(nil, "ARTWORK")
+  label:SetFontObject(fonts.Heading)
+  label:SetPoint("LEFT")
+  label:SetText("\194\171 Quest")
+  label:SetTextColor(unpack(RED))
+  back:SetWidth(label:GetStringWidth() + 6)
+  back:SetScript("OnEnter", function () label:SetTextColor(0.78, 0.22, 0.06) end)
+  back:SetScript("OnLeave", function () label:SetTextColor(unpack(RED)) end)
+  back:SetScript("OnClick", function ()
+    wantMap = false
+    ShowMapView(false)
+  end)
+
+  mapHolder = CreateFrame("Frame", nil, mapView)
+  MAP_W, MAP_H = MapSize()
+  mapHolder:SetSize(MAP_W, MAP_H)
+  mapHolder:SetPoint("TOP", 0, -MAP_TOP)
+end
+
 local function Build()
   BuildBook(GameBook())
   BuildLeft()
   BuildRight()
+  BuildMapView()
   BuildButtons()
   BuildEvents()
 end
@@ -1132,6 +1241,10 @@ local function BuildFlip()
   end
   sheetShadow = flipLayer:CreateTexture(nil, "BORDER")
   sheetShadow:SetColorTexture(1, 1, 1, 1)
+  -- (the page's dog-eared corner is over the sheets' layer: away while a
+  -- sheet or the cover turns, or it shows over it)
+  flipLayer:SetScript("OnShow", function () if book.grip then book.grip:SetAlpha(0) end end)
+  flipLayer:SetScript("OnHide", function () if book.grip then book.grip:SetAlpha(writingAlpha) end end)
   flipLayer:Hide()
 end
 
@@ -1340,6 +1453,9 @@ local function Driver(_, elapsed)
       if UpdateFlip(flip - FLIP_OUT) then
         flip = nil
         flipLayer:Hide()
+        if pageButtons.bar then pageButtons.bar:SetAlpha(1) end
+        stamp:SetAlpha(STAMP_ALPHA)
+        if stamp:IsShown() then stamp.thump:Play() end
         UpdateFades()
       end
     end
@@ -1410,6 +1526,9 @@ function StartFlip(questID)
   UpdateFlip(0)
   if ribbonMark then ribbonMark:SetAlpha(1) end -- (it fades with the old writing)
   flip, flipQuest = 0, questID
+  -- (the buttons are over the turning sheet's level: away while it turns)
+  if pageButtons.bar then pageButtons.bar:SetAlpha(0) end
+  stamp:SetAlpha(0)
   return true
 end
 
@@ -1418,6 +1537,8 @@ end
 function ResetAnimations()
   turning, opening, closing, flip, cascadeT, flipQuest = nil, nil, nil, nil, nil, nil
   if flipLayer then flipLayer:Hide() end
+  if pageButtons.bar then pageButtons.bar:SetAlpha(1) end
+  stamp:SetAlpha(STAMP_ALPHA)
   if pageRight then pageRight:Show() end
   ShadowTo(BOOK_W / 2)
   book:SetAlpha(1)
@@ -1539,12 +1660,12 @@ end
 ---
 -- The right page's writing (keep: where it was scrolled stays)
 function FillText(questID, keep)
-  -- A quest done: "Completed" by its title (with a little thump as the page shows)
+  -- A quest done: "Completed" stamped on the page (with a thump as it shows)
   local done = C_QuestLog.IsComplete(questID) and true or false
   local wasShown = stamp:IsShown()
   stamp:SetShown(done)
-  if done and (not keep or not wasShown) and Core:Animates() then stamp.thump:Play() end
-  title:SetWidth(TEXT_W - (done and STAMP_W or 0))
+  -- (during a page turn, once the page lands: see the turn's end)
+  if done and (not keep or not wasShown) and Core:Animates() and not flip then stamp.thump:Play() end
   title:SetText(C_QuestLog.GetTitleForQuestID(questID) or "")
   local index = C_QuestLog.GetLogIndexForQuestID(questID)
   local info = index and C_QuestLog.GetInfo(index)
@@ -1581,11 +1702,16 @@ function FillText(questID, keep)
   -- (the experience with the tracker's own xp icon, in the experience bar's
   -- purple with a thin dark outline; the money with the game's coins: gold,
   -- silver and copper)
-  local size = math.floor((Core.db.profile.bookTextSize or 12) * 1.3)
+  -- (the icons go with the writing's size, a little lower than the line's
+  -- middle so they sit on the numbers; the xp picture is wide, so bigger)
+  local _, textSize = fonts.Text:GetFont()
+  textSize = textSize or Core.db.profile.bookTextSize or 12
+  local size = math.floor(textSize * 1.25 + 0.5)
+  local xpSize = math.floor(textSize * 1.7 + 0.5)
+  local down = -math.floor(textSize * 0.25 + 0.5)
   if rewards.xp and rewards.xp > 0 then
     local number = _G.BreakUpLargeNumbers and _G.BreakUpLargeNumbers(rewards.xp) or rewards.xp
-    -- (a little lower, so it sits on the numbers' line like the coins do)
-    line[#line + 1] = ("|T%sxpBook:%d:%d:0:%d|t %s"):format(Core.ASSETS, size, size, -math.floor(size * 0.18 + 0.5), number)
+    line[#line + 1] = ("|T%sxpBook:%d:%d:0:%d|t %s"):format(Core.ASSETS, xpSize, xpSize, down, number)
   end
   if rewards.money and rewards.money > 0 then
     local gold = math.floor(rewards.money / 10000)
@@ -1593,7 +1719,7 @@ function FillText(questID, keep)
     local copper = rewards.money % 100
     local coins = {}
     local function Coin(amount, icon)
-      if amount > 0 then coins[#coins + 1] = ("%d|TInterface\\MoneyFrame\\UI-%sIcon:%d:%d:2:0|t"):format(amount, icon, size, size) end
+      if amount > 0 then coins[#coins + 1] = ("%d|TInterface\\MoneyFrame\\UI-%sIcon:%d:%d:2:%d|t"):format(amount, icon, size, size, down) end
     end
     Coin(gold, "Gold")
     Coin(silver, "Silver")
@@ -1649,6 +1775,8 @@ function Select(questID)
   selected = questID
   if not questID then
     Core.HideQuestMap()
+    selectedHasMap = false
+    mapView:Hide()
     textScroll:Hide()
     hint:Show()
     UpdateButtons()
@@ -1657,10 +1785,13 @@ function Select(questID)
   end
   hint:Hide()
   textScroll:Show()
-  -- The map on top when the quest has one, the writing under it
-  local hasMap = Core.ShowQuestMap(questID, mapHolder)
+  -- The writing the whole page; the map over it with Show map (and for a
+  -- quest opened from the map)
+  selectedHasMap = Core.ShowQuestMap(questID, mapHolder)
+  mapView:SetShown(selectedHasMap and wantMap or false)
+  textScroll:SetShown(not mapView:IsShown())
   textScroll:ClearAllPoints()
-  textScroll:SetPoint("TOPLEFT", 0, -(hasMap and MAP_H + GAP or 0))
+  textScroll:SetPoint("TOPLEFT")
   -- (the buttons under it: Track, Share, Abandon)
   textScroll:SetPoint("BOTTOMRIGHT", 0, BUTTONS_H + 6)
   FillText(questID)
@@ -1731,6 +1862,7 @@ function Core.ShowQuestText(questID)
   end
   local wasShown = book and book:IsShown()
   Open()
+  wantMap = false
   if wasShown then Turn(questID) else Select(questID) end
 end
 
@@ -1738,6 +1870,8 @@ end
 -- Opens a quest in the book (from the map's other quests)
 function Core.BookOpenQuest(questID)
   Open()
+  -- (from the map: the map stays)
+  wantMap = mapView:IsShown()
   -- (its zone opens in the list, if it was closed)
   local collapsed, zoneTitle = Collapsed(), nil
   for i = 1, C_QuestLog.GetNumQuestLogEntries() do
@@ -1764,6 +1898,7 @@ function Core.ShowQuestList()
     return
   end
   Open()
+  wantMap = false
   if selected and C_QuestLog.GetLogIndexForQuestID(selected) then
     Select(selected) -- (its map again: it goes with the book)
   else
@@ -1775,6 +1910,167 @@ function Core.ShowQuestList()
       Select(nil)
     end
   end
+end
+
+----
+-- The open quest abandoned (Animations on): its writing turns to dust, all
+-- at once. Every text, icon and button fades away together while soft specks
+-- in its ink rise out of it and drift up and to the right, thinning out.
+-- Then the page empties. Nothing runs until then.
+
+do
+local DUST = {
+  TIME = 1.1,       -- seconds for the writing to fade away
+  DENSITY = 0.07,   -- specks for each square pixel of writing, all told
+  MOST = 1600,      -- at most this many specks in all
+  MAX = 900,        -- at most this many flying at once (made once)
+}
+local dustLayer, dustStart, dustDone, dustTotal, dustMade
+local dustItems, liveSpecks, freeSpecks = {}, {}, {}
+
+-- What shows on the page: each text, icon and button, where it is on the
+-- book, and how much of the page it takes (bigger ones give more specks)
+local function Gather()
+  _G.wipe(dustItems)
+  local bookLeft, bookTop = book:GetLeft(), book:GetTop()
+  local top, bottom = textScroll:GetTop(), textScroll:GetBottom()
+  if not (bookLeft and top) then return 0 end
+  local area = 0
+  local function Add(region, always)
+    if not (region and region:IsVisible()) then return end
+    local left, regionTop = region:GetLeft(), region:GetTop()
+    local width, height = region:GetWidth(), region:GetHeight()
+    if not (left and regionTop) or width < 1 or height < 1 then return end
+    local isText = region:GetObjectType() == "FontString"
+    if isText and (region:GetText() or "") == "" then return end
+    -- (scrolled out of sight: not there)
+    if not always and (regionTop < bottom or regionTop - height > top) then return end
+    local r, g, b = INK[1], INK[2], INK[3]
+    if isText then
+      r, g, b = region:GetTextColor()
+      width = math.min(width, region:GetStringWidth() + 2)
+    end
+    area = area + width * height
+    dustItems[#dustItems + 1] = { region = region, x = left - bookLeft, y = bookTop - regionTop,
+      w = width, h = height, r = r, g = g, b = b, upTo = area }
+  end
+  for _, region in ipairs({ textContent:GetRegions() }) do Add(region) end
+  for _, child in ipairs({ textContent:GetChildren() }) do
+    for _, region in ipairs({ child:GetRegions() }) do Add(region) end
+  end
+  for _, button in ipairs(pageButtons) do Add(button.label, true) end
+  -- (the "Completed" stamp too)
+  for _, region in ipairs({ stamp:GetRegions() }) do Add(region, true) end
+  return area
+end
+
+-- A speck out of a random place of the writing (the bigger a text, the
+-- likelier)
+local function Speck(area)
+  if #liveSpecks >= DUST.MAX then return end
+  local pick = math.random() * area
+  local item = dustItems[#dustItems]
+  for _, one in ipairs(dustItems) do
+    if pick <= one.upTo then
+      item = one
+      break
+    end
+  end
+  local texture = table.remove(freeSpecks)
+  if not (texture and item) then return end
+  local size = 2 + math.random() * 2.8
+  -- (a little lighter or darker than the ink, like grains of sand)
+  local shade = 0.7 + math.random() * 0.6
+  texture:SetVertexColor(math.min(1, item.r * shade), math.min(1, item.g * shade), math.min(1, item.b * shade))
+  texture:SetSize(size, size)
+  texture:Show()
+  liveSpecks[#liveSpecks + 1] = {
+    texture = texture, size = size,
+    x = item.x + math.random() * item.w, y = -(item.y + math.random() * item.h),
+    vx = 14 + math.random() * 38, vy = 12 + math.random() * 30,
+    sway = math.random() * 6.28, life = 0.9 + math.random() * 0.9, age = 0,
+  }
+end
+
+-- Done (or the book shut meanwhile): everything back as it was
+local function Finish()
+  for _, item in ipairs(dustItems) do item.region:SetAlpha(1) end
+  _G.wipe(dustItems)
+  for _, speck in ipairs(liveSpecks) do
+    speck.texture:Hide()
+    freeSpecks[#freeSpecks + 1] = speck.texture
+  end
+  _G.wipe(liveSpecks)
+  dustLayer:SetScript("OnUpdate", nil)
+  local done = dustDone
+  dustDone = nil
+  if done then done() end
+end
+
+local function Update(_, elapsed)
+  local p = math.min(1, (_G.GetTime() - dustStart) / DUST.TIME)
+  -- the writing fades away, all of it together
+  local eased = p * p * (3 - 2 * p)
+  for _, item in ipairs(dustItems) do item.region:SetAlpha(1 - eased) end
+  -- the specks come out as it goes: most in the middle of it
+  if p < 1 then
+    local due = dustTotal * (0.5 - 0.5 * math.cos(math.pi * p))
+    local count = math.floor(due - dustMade)
+    for _ = 1, count do Speck(dustItems.area) end
+    dustMade = dustMade + count
+  end
+  for i = #liveSpecks, 1, -1 do
+    local speck = liveSpecks[i]
+    speck.age = speck.age + elapsed
+    if speck.age >= speck.life then
+      speck.texture:Hide()
+      freeSpecks[#freeSpecks + 1] = speck.texture
+      table.remove(liveSpecks, i)
+    else
+      -- up and to the right, swaying a little, rising faster as it goes
+      speck.vy = speck.vy + 16 * elapsed
+      speck.x = speck.x + (speck.vx + 8 * math.sin(speck.sway + speck.age * 5)) * elapsed
+      speck.y = speck.y + speck.vy * elapsed
+      speck.texture:SetPoint("CENTER", book, "TOPLEFT", speck.x, speck.y)
+      local life = speck.age / speck.life
+      speck.texture:SetAlpha(0.9 * (1 - life * life))
+      local size = speck.size * (1 - 0.5 * life)
+      speck.texture:SetSize(size, size)
+    end
+  end
+  if p >= 1 and #liveSpecks == 0 then Finish() end
+end
+
+---
+-- Turns the open quest's writing to dust, then calls `done`. False (and
+-- nothing happens) with the animations off or nothing written.
+function BookDust(done)
+  if not (Animates() and selected) then return false end
+  if not dustLayer then
+    dustLayer = CreateFrame("Frame", nil, book)
+    dustLayer:SetAllPoints()
+    dustLayer:SetFrameLevel(book:GetFrameLevel() + 65)
+    -- (the book shut while it runs: it ends at once)
+    dustLayer:SetScript("OnHide", function () if dustDone then Finish() end end)
+    -- (soft round specks, made once, so none is made while it runs)
+    for _ = 1, DUST.MAX do
+      local texture = Core.Smooth(dustLayer:CreateTexture(nil, "OVERLAY"))
+      texture:SetTexture(Core.ASSETS.."circleSoft")
+      texture:Hide()
+      freeSpecks[#freeSpecks + 1] = texture
+    end
+  end
+  if dustDone then Finish() end
+  local area = Gather()
+  if #dustItems == 0 or area <= 0 then return false end
+  dustItems.area = area
+  dustTotal = math.min(DUST.MOST, area * DUST.DENSITY)
+  dustMade = 0
+  dustDone = done
+  dustStart = _G.GetTime()
+  dustLayer:SetScript("OnUpdate", Update)
+  return true
+end
 end
 
 ----
@@ -1837,7 +2133,7 @@ local function UpdateFonts()
   Size("Title", title)
   Size("Heading", title * 0.71)
   Size("Zone", title * 0.62)
-  Size("Stamp", title * 0.71)
+  Size("Stamp", title * 0.75)
   Size("Button", title * 0.54)
 end
 
