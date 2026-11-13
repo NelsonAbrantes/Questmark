@@ -796,7 +796,7 @@ function Core.HoldLayout(seconds)
 end
 
 local function Schedule()
-  if scheduled then return end
+  if scheduled or Core.trackerOn == false then return end
   scheduled = true
   local function Run()
     local wait = holdUntil - GetTime()
@@ -854,9 +854,12 @@ local function Open(entry)
   if entry.kind == "quest" then
     if entry.autoComplete and _G.ShowQuestComplete then
       pcall(_G.ShowQuestComplete, entry.id)
-    else
+    elseif Core.BookOn() then
       -- (read in the tracker's own window: never the map, see QuestText.lua)
       Core.ShowQuestText(entry.id)
+    elseif _G.C_SuperTrack and _G.C_SuperTrack.SetSuperTrackedQuestID then
+      -- (the quest book off: followed; the game's map is never opened)
+      _G.C_SuperTrack.SetSuperTrackedQuestID(entry.id)
     end
   elseif entry.kind == "achievement" then
     if not _G.AchievementFrame and _G.AchievementFrame_LoadUI then _G.AchievementFrame_LoadUI() end
@@ -930,8 +933,10 @@ local function Menu(block)
     root:CreateTitle(entry.title)
     if entry.kind == "quest" then
       root:CreateButton(entry.super and "Stop following" or "Follow", function () Follow(entry.id) end)
-      root:CreateButton("Read quest", function () Open(entry) end)
-      root:CreateButton("All quests", Core.ShowQuestList)
+      if Core.BookOn() then
+        root:CreateButton("Read quest", function () Open(entry) end)
+        root:CreateButton("All quests", Core.ShowQuestList)
+      end
       if C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(entry.id) and _G.IsInGroup() then
         root:CreateButton("Share", function () Share(entry.id) end)
       end
@@ -1169,6 +1174,11 @@ local LAYOUT_KEYS = {
 
 Core:OnChange(function (key)
   if key == "enable" then
+    -- (turned off in Options: the game's tracker stays, this one hides)
+    if not Core.trackerOn then
+      frame:Hide()
+      return
+    end
     enabledAt = GetTime()
     HookGameTracker()
     for _, event in ipairs(EVENTS) do pcall(events.RegisterEvent, events, event) end

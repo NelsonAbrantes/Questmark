@@ -158,6 +158,10 @@ local function Build()
   local Settings = _G.Settings
   local category, layout = Settings.RegisterVerticalLayoutCategory(TITLE)
 
+  Header(layout, "Parts")
+  Checkbox(category, "useTracker", "Questmark's tracker", "Questmark's own objective tracker in place of the game's. Off: the game's tracker comes back. Needs a reload")
+  Checkbox(category, "useBook", "Quest book", "The quest book: clicking a quest in the tracker reads it there, and the quest log key can open it (Quest Book options). Off: the quest log key opens the game's quest log, and clicking a quest in the tracker follows it")
+
   Header(layout, "Fade")
   Checkbox(category, "fade", "Fade out", "The tracker fades out when you're not using it. Turn off to keep it always visible")
   Slider(category, "holdTime", "Fade out delay", 1, 60, 1, "Seconds before the tracker fades out")
@@ -221,7 +225,7 @@ local function Build()
   Checkbox(category, "zoneHeaders", "Group quests by zone", "Sorts the quests by zone (in the order of your quest log) and writes each zone's name above its quests. Click a zone's name to minimize it. Arriving in a zone opens it and minimizes the others")
   Checkbox(category, "currentZoneFirst", "Your zone first", "With quests grouped by zone, the zone you're in goes to the top")
   Checkbox(category, "completedLast", "Quests to turn in last", "With quests grouped by zone, the quests ready to turn in go to the end of their zone")
-  Checkbox(category, "zoneOnly", "Only quests in this zone", "Track only the quests of the zone you're in, and switch when you change zone. The others stay in your quest log. Changes wait for the end of a fight. Turning it off tracks them again")
+  Checkbox(category, "zoneOnly", "Only quests in this zone", "Only the zone you're in is open: with All quests on, the other zones show minimized (click one to open it); with it off, only the quests of this zone are tracked (the others stay in your quest log, and are tracked again when you turn this off)")
   Dropdown(category, "instanceMode", "In dungeons and raids", {
     { "normal", "Like outside" },
     { "hide", "Hide the tracker" },
@@ -250,6 +254,23 @@ local function Build()
   Settings.RegisterAddOnCategory(category)
   return category
 end
+
+-- Turning the tracker on or off: a reload, when you want it
+Core:OnChange(function (key)
+  if key ~= "useTracker" then return end
+  local Popups = _G.StaticPopupDialogs
+  if not Popups then return end
+  Popups.QUESTMARK_RELOAD = Popups.QUESTMARK_RELOAD or {
+    text = "Questmark: the tracker changes after a reload. Reload now?",
+    button1 = _G.ACCEPT or "Accept",
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function () _G.ReloadUI() end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+  }
+  _G.StaticPopup_Show("QUESTMARK_RELOAD")
+end)
 
 Core:OnChange(function (key)
   if key ~= "enable" or Core.optionsCategory then return end

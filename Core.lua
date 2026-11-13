@@ -120,6 +120,10 @@ Core.defaults = {
     glassBars = true,         -- progress bars in the title color (off: the game's green)
     sectionAnimation = "glass", -- animations: glass or off
 
+    -- Parts (each can be turned off)
+    useTracker = true,        -- the tracker in place of the game's (changes need a reload)
+    useBook = true,           -- the quest book (off: the game's quest log)
+
     -- Behavior
     allQuests = true,         -- every quest in the quest log, not only the tracked ones
     bookKey = true,           -- the quest log's key (L) opens the quest book
@@ -127,7 +131,7 @@ Core.defaults = {
     bookTextSize = 12,        -- its writing and list
     bookTitleSize = 24,       -- its titles (headings and zones go with it)
     bookMapSize = 78,         -- its map (% of the page's width)
-    bookMapZoom = 2.5,        -- how close its map opens on the quest's place
+    bookMapZoom = 1.5,        -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
     bookDust = true,          -- gold dust over its pages
     bookSounds = true,        -- its sounds (opening, shutting, page turns)
@@ -177,7 +181,16 @@ function Core:OnInitialize()
 end
 
 function Core:OnEnable()
+  -- The tracker on or off, as it was when the game loaded (turning it on or
+  -- off needs a reload: the game's tracker only comes back right then)
+  self.trackerOn = self.db.profile.useTracker ~= false
   self:Changed("enable")
+end
+
+---
+-- True while the quest book is on (Options: Quest book)
+function Core.BookOn()
+  return Core.db.profile.useBook ~= false
 end
 
 function Core:OnChange(listener)

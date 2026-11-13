@@ -319,7 +319,7 @@ events:SetScript("OnEvent", function (_, event, questID)
 end)
 
 Core:OnChange(function (key)
-  if key ~= "enable" then return end
+  if key ~= "enable" or not Core.trackerOn then return end
   events:RegisterEvent("QUEST_TURNED_IN")
   events:RegisterEvent("QUEST_REMOVED")
 end)

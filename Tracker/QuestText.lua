@@ -92,6 +92,7 @@ Font("Text", "Fonts\\FRIZQT__.TTF", 12, 2)
 Font("Small", "Fonts\\FRIZQT__.TTF", 11)
 Font("Badge", "Fonts\\FRIZQT__.TTF", 10)
 Font("Stamp", "Fonts\\MORPHEUS.TTF", 17)
+Font("Button", "Fonts\\MORPHEUS.TTF", 13)
 Core.bookFonts = fonts
 
 -- The sound of the book shutting: the game's spellbook closing (a book's thump)
@@ -337,24 +338,25 @@ local function InTracker(questID)
   return false
 end
 
+-- Tracks the quest, or stops tracking it
+local function ToggleTrack(questID)
+  if InTracker(questID) then
+    -- (with every quest showing, it's hidden from the tracker too)
+    if Core.db.profile.allQuests then Core.HideQuest(questID) end
+    C_QuestLog.RemoveQuestWatch(questID)
+  else
+    Core.UnhideQuest(questID)
+    C_QuestLog.AddQuestWatch(questID)
+  end
+end
+
 local function QuestMenu(owner, questID)
   local MenuUtil = _G.MenuUtil
   if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
   MenuUtil.CreateContextMenu(owner, function (_, root)
     root:CreateTitle(C_QuestLog.GetTitleForQuestID(questID) or "")
     root:CreateButton("Read quest", function () Turn(questID) end)
-    if InTracker(questID) then
-      root:CreateButton("Stop tracking", function ()
-        -- (with every quest showing, it's hidden from the tracker too)
-        if Core.db.profile.allQuests then Core.HideQuest(questID) end
-        C_QuestLog.RemoveQuestWatch(questID)
-      end)
-    else
-      root:CreateButton("Track", function ()
-        Core.UnhideQuest(questID)
-        C_QuestLog.AddQuestWatch(questID)
-      end)
-    end
+    root:CreateButton(InTracker(questID) and "Stop tracking" or "Track", function () ToggleTrack(questID) end)
     local SuperTrack = _G.C_SuperTrack
     local followed = SuperTrack and SuperTrack.GetSuperTrackedQuestID and SuperTrack.GetSuperTrackedQuestID() == questID
     root:CreateButton(followed and "Stop following" or "Follow", function () Core.FollowQuest(questID) end)
@@ -365,6 +367,78 @@ local function QuestMenu(owner, questID)
       root:CreateButton("Abandon", function () Core.AbandonQuest(questID) end)
     end
   end)
+end
+
+----
+-- Buttons under the open quest, as in the game's quest log: Track (or
+-- Untrack), Share (in a group, a quest that can be shared) and Abandon.
+-- Words in the book's red ink, brighter under the mouse, faded when they
+-- can't be used.
+
+local BUTTONS_H = 20 -- room for them at the bottom of the right page
+local BUTTON_GAP = 22
+local pageButtons = {}
+
+local function UpdateButtons()
+  local bar = pageButtons.bar
+  if not bar then return end
+  local questID = selected
+  bar:SetShown(questID ~= nil)
+  if not questID then return end
+  pageButtons[1].label:SetText(InTracker(questID) and "Untrack" or "Track")
+  pageButtons[2]:SetEnabled(C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID)
+    and _G.IsInGroup() and true or false)
+  pageButtons[3]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
+  local width = -BUTTON_GAP
+  for _, button in ipairs(pageButtons) do
+    button:SetWidth(button.label:GetStringWidth() + 8)
+    button:Paint()
+    width = width + button:GetWidth() + BUTTON_GAP
+  end
+  bar:SetWidth(math.max(1, width))
+end
+
+local function BuildButtons()
+  local bar = CreateFrame("Frame", nil, rightContent)
+  bar:SetHeight(BUTTONS_H)
+  bar:SetPoint("BOTTOM")
+  pageButtons.bar = bar
+  local actions = {
+    { "Track", function (questID)
+      ToggleTrack(questID)
+      -- (its word follows once the tracker has it)
+      _G.C_Timer.After(0.1, UpdateButtons)
+    end },
+    { "Share", function (questID) Core.ShareQuest(questID) end },
+    { "Abandon", function (questID) Core.AbandonQuest(questID) end },
+  }
+  for i, action in ipairs(actions) do
+    local button = CreateFrame("Button", nil, bar)
+    button:SetHeight(BUTTONS_H)
+    button.label = button:CreateFontString(nil, "ARTWORK")
+    button.label:SetFontObject(fonts.Button)
+    button.label:SetPoint("CENTER")
+    button.label:SetText(action[1])
+    if i == 1 then
+      button:SetPoint("LEFT")
+    else
+      button:SetPoint("LEFT", pageButtons[i - 1], "RIGHT", BUTTON_GAP, 0)
+    end
+    function button:Paint()
+      if not self:IsEnabled() then
+        self.label:SetTextColor(FADED[1], FADED[2], FADED[3], 0.45)
+      elseif self:IsMouseOver() then
+        self.label:SetTextColor(0.78, 0.22, 0.06)
+      else
+        self.label:SetTextColor(RED[1], RED[2], RED[3])
+      end
+    end
+    button:SetScript("OnEnter", button.Paint)
+    button:SetScript("OnLeave", button.Paint)
+    button:SetScript("OnClick", function () if selected then action[2](selected) end end)
+    pageButtons[i] = button
+  end
+  bar:Hide()
 end
 
 ----
@@ -676,10 +750,6 @@ local function BuildBook(gameBook)
       shown[#shown + 1] = mark
       ribbonMark = mark
     end
-    local closeButton = CreateFrame("Button", nil, book, "UIPanelCloseButton")
-    closeButton:SetPoint("TOPRIGHT", 2, 2)
-    closeButton:SetScript("OnClick", function () CloseBook() end)
-    shown[#shown + 1] = closeButton
   else
     pages[1] = { x0 = 0, x1 = BOOK_W, file = Core.ASSETS.."book", l = 0, r = 1, t = 0, b = 1 }
     -- (the picture has its own shadow under the book)
@@ -688,17 +758,29 @@ local function BuildBook(gameBook)
     picture:SetAllPoints()
   end
 
+  -- Closing: a cross of two brush strokes in the titles' red ink, in the
+  -- page's top right corner (brighter under the mouse)
   local close = CreateFrame("Button", nil, book)
-  close:SetShown(not gameBook)
-  close:SetSize(14, 14)
-  close:SetPoint("CENTER", book, "TOPLEFT", 780, -52)
-  local x = close:CreateFontString(nil, "ARTWORK")
-  x:SetFontObject(fonts.Heading)
-  x:SetPoint("CENTER")
-  x:SetText("x")
-  x:SetTextColor(unpack(FADED))
-  close:SetScript("OnEnter", function () x:SetTextColor(unpack(RED)) end)
-  close:SetScript("OnLeave", function () x:SetTextColor(unpack(FADED)) end)
+  close:SetSize(20, 20)
+  if gameBook then
+    close:SetPoint("CENTER", book, "TOPRIGHT", -44, -40)
+  else
+    close:SetPoint("CENTER", book, "TOPLEFT", 780, -52)
+  end
+  local strokes = {}
+  for i = 1, 2 do
+    local stroke = Core.Smooth(close:CreateTexture(nil, "ARTWORK"))
+    stroke:SetTexture(Core.ASSETS.."slash")
+    stroke:SetAllPoints()
+    if i == 2 then stroke:SetTexCoord(1, 0, 0, 1) end -- (the other way)
+    stroke:SetVertexColor(unpack(RED))
+    strokes[i] = stroke
+  end
+  local function Ink(r, g, b)
+    for _, stroke in ipairs(strokes) do stroke:SetVertexColor(r, g, b) end
+  end
+  close:SetScript("OnEnter", function () Ink(0.78, 0.22, 0.06) end)
+  close:SetScript("OnLeave", function () Ink(unpack(RED)) end)
   close:SetScript("OnClick", function () CloseBook() end)
   shown[#shown + 1] = close
 
@@ -973,6 +1055,7 @@ local function Build()
   BuildBook(GameBook())
   BuildLeft()
   BuildRight()
+  BuildButtons()
   BuildEvents()
 end
 
@@ -1606,6 +1689,7 @@ function FillText(questID, keep)
     textScroll:SetVerticalScroll(0)
   end
   UpdateFades()
+  UpdateButtons()
 end
 
 ---
@@ -1616,6 +1700,7 @@ function Select(questID)
     Core.HideQuestMap()
     textScroll:Hide()
     hint:Show()
+    UpdateButtons()
     if book:IsShown() then FillList() end
     return
   end
@@ -1625,7 +1710,8 @@ function Select(questID)
   local hasMap = Core.ShowQuestMap(questID, mapHolder)
   textScroll:ClearAllPoints()
   textScroll:SetPoint("TOPLEFT", 0, -(hasMap and MAP_H + GAP or 0))
-  textScroll:SetPoint("BOTTOMRIGHT")
+  -- (the buttons under it: Track, Share, Abandon)
+  textScroll:SetPoint("BOTTOMRIGHT", 0, BUTTONS_H + 6)
   FillText(questID)
   if book:IsShown() then FillList() end
 end
@@ -1687,6 +1773,7 @@ end
 ---
 -- Opens the book on a quest; the same quest again closes it
 function Core.ShowQuestText(questID)
+  if not Core.BookOn() then return end
   if book and book:IsShown() and not closing and selected == questID then
     CloseBook()
     return
@@ -1700,12 +1787,27 @@ end
 -- Opens a quest in the book (from the map's other quests)
 function Core.BookOpenQuest(questID)
   Open()
+  -- (its zone opens in the list, if it was closed)
+  local collapsed, zoneTitle = Collapsed(), nil
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    if info and info.isHeader then
+      zoneTitle = info.title
+    elseif info and info.questID == questID then
+      if zoneTitle and collapsed[zoneTitle] then
+        collapsed[zoneTitle] = nil
+        FillList()
+      end
+      break
+    end
+  end
   Turn(questID)
 end
 
 ---
 -- Opens the book (on the quest you follow, if none is open); again closes it
 function Core.ShowQuestList()
+  if not Core.BookOn() then return end
   if book and book:IsShown() and not closing then
     CloseBook()
     return
@@ -1742,7 +1844,7 @@ local function BindKey()
     return
   end
   keyButton:UnregisterEvent("PLAYER_REGEN_ENABLED")
-  local keys = Core.db.profile.bookKey and { _G.GetBindingKey("TOGGLEQUESTLOG") } or {}
+  local keys = Core.db.profile.bookKey and Core.BookOn() and { _G.GetBindingKey("TOGGLEQUESTLOG") } or {}
   -- (only when they change: changing them makes the game say the bindings
   -- changed, which comes back here)
   local wanted = table.concat(keys, " ")
@@ -1759,7 +1861,9 @@ keyButton:RegisterEvent("PLAYER_LOGIN")
 keyButton:RegisterEvent("UPDATE_BINDINGS")
 
 Core:OnChange(function (key)
-  if key == "bookKey" or key == "profile" then BindKey() end
+  if key == "bookKey" or key == "profile" or key == "useBook" then BindKey() end
+  -- (the book turned off while open: it closes)
+  if key == "useBook" and not Core.BookOn() and book and book:IsShown() then book:Hide() end
 end)
 end
 
@@ -1783,6 +1887,7 @@ local function UpdateFonts()
   Size("Heading", title * 0.71)
   Size("Zone", title * 0.62)
   Size("Stamp", title * 0.71)
+  Size("Button", title * 0.54)
 end
 
 local function Refill()

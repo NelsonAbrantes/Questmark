@@ -203,12 +203,22 @@ local function DrawAll()
 end
 
 ---
--- Puts a mark at a place in the view; hidden when it's out of it
+-- Puts a mark at a place in the view; hidden when it's out of it. Near the
+-- map's torn edge it fades out (the edge eats up to 7% of each side: Assets/
+-- mapMask, 512 wide), so no mark sits on the page beside the map
+local EDGE_GONE, EDGE_SHOWN = 22, 58 -- (in mapMask's 512 pixels from a side)
 local function Place(region, px, py)
   if not px or px < 0 or py < 0 or px > WIDTH or py > HEIGHT then
     region:Hide()
     return false
   end
+  local edge = math.min(math.min(px, WIDTH - px) / WIDTH, math.min(py, HEIGHT - py) / HEIGHT) * 512
+  local alpha = math.max(0, math.min(1, (edge - EDGE_GONE) / (EDGE_SHOWN - EDGE_GONE)))
+  if alpha <= 0 then
+    region:Hide()
+    return false
+  end
+  region:SetAlpha(alpha)
   region:ClearAllPoints()
   region:SetPoint("CENTER", map, "TOPLEFT", px, -py)
   region:Show()
@@ -564,7 +574,7 @@ function Core.ShowQuestMap(questID, holder)
   if questX then
     -- Opens zoomed in on the quest's place (right click: the whole zone)
     -- (how close: Options, Quest book)
-    zoom = Core.db.profile.bookMapZoom or 2.5
+    zoom = Core.db.profile.bookMapZoom or 1.5
     local scale = Scale()
     ox = questX * layerW * scale - WIDTH / 2
     oy = questY * layerH * scale - HEIGHT / 2

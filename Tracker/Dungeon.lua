@@ -537,6 +537,7 @@ end)
 
 Core:OnChange(function (key)
   if key == "enable" then
+    if not Core.trackerOn then return end -- (the tracker turned off)
     for _, event in ipairs({
       "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_END", "BOSS_KILL",
       "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY",

@@ -153,9 +153,14 @@ end
 ---
 -- Minimizes a zone (its quests hidden, listed under the last quest) or opens
 -- it. The quests stay tracked: only the tracker stops showing them.
+-- "Only quests in this zone" (with every quest showing): the zones opened by
+-- hand while here, and where that was (they minimize again in another zone)
+local openedHere, openedWhere = {}, nil
+
 function Core.SetZoneCollapsed(zone, collapse)
   if not zone then return end
   Collapsed()[zone] = collapse and true or nil
+  openedHere[zone] = not collapse or nil
   -- Its quests come back in a quiet cascade, not as new quests
   if not collapse then Core.openedZone = { zone = zone, when = GetTime() } end
   Core:Changed("layout")
@@ -311,15 +316,29 @@ function Core.QuestSection()
     if entry then table.insert(quests, entry) end
   end
 
-  -- "Only quests in this zone" with every quest showing: the others are
-  -- left out here (the zone filter then doesn't stop tracking them)
+  -- "Only quests in this zone" with every quest showing: the other zones
+  -- show minimized (one opened by hand stays open until you change zone);
+  -- without zone names, they're left out (the zone filter then doesn't stop
+  -- tracking them)
+  local forced = {}
   if profile.allQuests and profile.zoneOnly and not (Core.InDungeon and Core.InDungeon()) then
     local here = Here()
-    local kept = {}
-    for _, quest in ipairs(quests) do
-      if quest.zone == here then table.insert(kept, quest) end
+    if profile.zoneHeaders then
+      if here ~= openedWhere then
+        wipe(openedHere)
+        openedWhere = here
+      end
+      for _, quest in ipairs(quests) do
+        local zone = quest.zone or (_G.OTHER or "Other")
+        if zone ~= here and not openedHere[zone] then forced[zone] = true end
+      end
+    else
+      local kept = {}
+      for _, quest in ipairs(quests) do
+        if quest.zone == here then table.insert(kept, quest) end
+      end
+      quests = kept
     end
-    quests = kept
   end
 
   -- Every zone with a tracked quest, before any is left out below (a
@@ -373,7 +392,7 @@ function Core.QuestSection()
   local previous
   for _, quest in ipairs(quests) do
     local zone = quest.zone or (_G.OTHER or "Other")
-    if collapsed[zone] then
+    if collapsed[zone] or forced[zone] then
       if not hiddenCount[zone] then table.insert(collapsedOrder, zone) end
       hiddenCount[zone] = (hiddenCount[zone] or 0) + 1
     else

@@ -180,6 +180,7 @@ end)
 
 Core:OnChange(function (key)
   if key == "enable" then
+    if not Core.trackerOn then return end -- (the tracker turned off)
     Apply(state.alpha)
     events:RegisterEvent("PLAYER_ENTERING_WORLD")
     events:RegisterEvent("ZONE_CHANGED_NEW_AREA")

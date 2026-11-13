@@ -159,6 +159,7 @@ end)
 
 Core:OnChange(function (key)
   if key == "enable" then
+    if not Core.trackerOn then return end -- (the tracker turned off)
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     events:RegisterEvent("BAG_UPDATE_COOLDOWN")
   end
