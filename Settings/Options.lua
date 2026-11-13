@@ -248,7 +248,6 @@ local function Build()
   Slider(book, "bookMapSize", "Map size", 40, 100, 2, "Width of the map on the right page, in % of the page")
   Slider(book, "bookMapZoom", "Map zoom", 1, 5, 0.5, "How close the map opens on the quest's place. 1: the whole zone")
   Checkbox(book, "bookAnimations", "Book animations", "The quest book opens and shuts as a book, its pages turn, its quests come in one after the other and a quest just done glows")
-  Checkbox(book, "bookDust", "Gold dust", "Gold dust floating over the quest book's pages")
   Checkbox(book, "bookSounds", "Book sounds", "The sounds of the quest book opening, shutting and turning its pages")
 
   Settings.RegisterAddOnCategory(category)

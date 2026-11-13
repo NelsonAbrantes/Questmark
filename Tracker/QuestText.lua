@@ -1068,13 +1068,11 @@ end
 -- - another quest: a page turns over the spine
 -- - the list's quests come in one after the other as the book opens
 -- - a quest just done glows gold in the list
--- - gold dust floats over the pages
 -- One driver runs them all, and only while the book shows.
 
 -- (in a scope of its own: the file has more locals than the game allows in
 -- one; what the rest uses is declared outside it)
 local closing, flip, Animates
-local dust = {}
 do
 local OPEN_IN, OPEN_TURN, OPEN_WRITING = 0.14, 0.7, 0.2 -- the shut book shows, its cover opens, the writing comes
 local CLOSE_WRITING, CLOSE_TURN, CLOSE_OUT = 0.1, 0.55, 0.16 -- the writing goes, the page folds over, the book goes
@@ -1093,7 +1091,6 @@ local FLIP_CURL = 0.45 -- how far its outer edge leads the part by the spine
 local FLIP_LAND = 0.18 -- at the end, the sheet fades into the page it lands on
 local CASCADE_STEP, CASCADE_IN, CASCADE_MAX = 0.025, 0.2, 24
 local FLASH_TIME = 1.6
-local DUST = 16
 local GOLD = { 1.0, 0.80, 0.35 }
 
 local driver, opening, cascadeT
@@ -1214,48 +1211,6 @@ end
 
 local function UpdateFlip(t)
   return UpdateSheet(Smoother(math.min(1, t / FLIP_TIME)), "turn")
-end
-
--- The dust: small soft specks drifting up slowly over the pages, fading in
--- and out
-local function Speck(speck, first)
-  speck.x = 30 + math.random() * (BOOK_W - 60)
-  speck.y = 40 + math.random() * (BOOK_H - 80)
-  speck.vx, speck.vy = (math.random() - 0.5) * 6, 3 + math.random() * 6
-  speck.life = 4 + math.random() * 5
-  speck.t = first and math.random() * speck.life or 0
-  local size = 2 + math.random() * 3.5
-  speck.texture:SetSize(size, size)
-end
-
-local function BuildDust()
-  local layer = CreateFrame("Frame", nil, book)
-  layer:SetAllPoints()
-  layer:SetFrameLevel(book:GetFrameLevel() + 40)
-  for i = 1, DUST do
-    local texture = Core.Smooth(layer:CreateTexture(nil, "OVERLAY"))
-    texture:SetTexture(Core.ASSETS.."circleSoft")
-    texture:SetBlendMode("ADD")
-    texture:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
-    dust[i] = { texture = texture }
-    Speck(dust[i], true)
-  end
-  dust.layer = layer
-  -- (it only shows with the book all open: it comes and goes with the writing)
-  shown[#shown + 1] = layer
-  layer:SetAlpha(writingAlpha)
-end
-
-local function UpdateDust(elapsed)
-  for _, speck in ipairs(dust) do
-    speck.t = speck.t + elapsed
-    if speck.t >= speck.life then Speck(speck) end
-    local x = speck.x + speck.vx * speck.t + 4 * math.sin(speck.t * 1.3 + speck.life)
-    local y = speck.y - speck.vy * speck.t
-    speck.texture:ClearAllPoints()
-    speck.texture:SetPoint("CENTER", book, "TOPLEFT", x, -y)
-    speck.texture:SetAlpha(0.45 * math.sin(math.pi * speck.t / speck.life))
-  end
 end
 
 ---
@@ -1394,7 +1349,6 @@ local function Driver(_, elapsed)
     UpdateCascade()
   end
   if next(flashing) then UpdateFlashes(elapsed) end
-  if dust[1] and dust.layer:IsShown() then UpdateDust(elapsed) end
 end
 
 ---
@@ -1409,11 +1363,8 @@ function StartOpen()
   if not Animates() then
     Unfold(1)
     Writing(1)
-    if dust.layer then dust.layer:Hide() end
     return
   end
-  if not dust[1] then BuildDust() end
-  dust.layer:SetShown(Core.db.profile.bookDust)
   if pageLeft then
     if not flipLayer then BuildFlip() end
     opening = 0
@@ -1910,8 +1861,6 @@ Core:OnChange(function (key)
     mapHolder:SetSize(MAP_W, MAP_H)
     Core.QuestMapResize(MAP_W, MAP_H)
     if selected and book:IsShown() then Select(selected) end
-  elseif key == "bookDust" and dust.layer then
-    dust.layer:SetShown(Core.db.profile.bookDust and book:IsShown())
   end
 end)
 end

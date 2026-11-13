@@ -133,7 +133,6 @@ Core.defaults = {
     bookMapSize = 78,         -- its map (% of the page's width)
     bookMapZoom = 1.5,        -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
-    bookDust = true,          -- gold dust over its pages
     bookSounds = true,        -- its sounds (opening, shutting, page turns)
     zoneOnly = false,         -- only the quests of the current zone
     zoneHeaders = true,       -- quests sorted by zone, with each zone's name above them
