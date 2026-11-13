@@ -148,6 +148,7 @@ end
 
 -- The game's icons for the quest kinds, by the name the game gives them
 local TAG_ICON = 16
+local TAG_ICON_PAGE = 13 -- (after the name, on the quest's page)
 local TAG_ICONS = {
   elite = "nameplates-icon-elite-gold",
   dungeon = "questlog-questtypeicon-dungeon",
@@ -161,12 +162,16 @@ local TAG_ICONS = {
   account = "questlog-questtypeicon-account",
 }
 
-local function Tags(questID, frequency)
-  local found, seen = {}, {}
-  local function Add(text)
+-- (apart: the icons on their own, as a second answer, at size, for after
+-- the quest's name on its page)
+local function Tags(questID, frequency, size, apart)
+  size = size or TAG_ICON
+  local found, icons, seen = {}, {}, {}
+  local function Add(text, isIcon)
     if text and text ~= "" and not seen[text] then
       seen[text] = true
-      found[#found + 1] = text
+      local into = (apart and isIcon) and icons or found
+      into[#into + 1] = text
     end
   end
   local Frequency = _G.Enum and _G.Enum.QuestFrequency
@@ -191,19 +196,19 @@ local function Tags(questID, frequency)
     local atlas = name and TAG_ICONS[name:lower()]
     local Info = _G.C_Texture and _G.C_Texture.GetAtlasInfo
     if atlas and Info and Info(atlas) then
-      Add("|A:"..atlas..":"..TAG_ICON..":"..TAG_ICON.."|a")
+      Add("|A:"..atlas..":"..size..":"..size.."|a", true)
     else
       local Icon = _G.QuestUtils_GetQuestTypeIconMarkupString
       local ok, icon = false, nil
-      if Icon then ok, icon = pcall(Icon, questID, TAG_ICON, TAG_ICON) end
+      if Icon then ok, icon = pcall(Icon, questID, size, size) end
       if ok and type(icon) == "string" and icon ~= "" then
-        Add(icon)
+        Add(icon, true)
       else
         Add(name)
       end
     end
   end
-  return table.concat(found, " · ")
+  return table.concat(found, " · "), table.concat(icons, " ")
 end
 
 ---
@@ -1675,10 +1680,12 @@ function FillText(questID, keep)
   stamp:SetShown(done)
   -- (during a page turn, once the page lands: see the turn's end)
   if done and (not keep or not wasShown) and Core:Animates() and not flip then stamp.thump:Play() end
-  title:SetText(C_QuestLog.GetTitleForQuestID(questID) or "")
   local index = C_QuestLog.GetLogIndexForQuestID(questID)
   local info = index and C_QuestLog.GetInfo(index)
-  local kinds = Tags(questID, info and info.frequency)
+  -- (the kind's icon right after the name, a little bigger; the words below)
+  local kinds, icons = Tags(questID, info and info.frequency, TAG_ICON_PAGE, true)
+  local name = C_QuestLog.GetTitleForQuestID(questID) or ""
+  title:SetText(icons ~= "" and name.." "..icons or name)
   tags:SetText(kinds)
   local y = title:GetStringHeight() + (kinds ~= "" and tags:GetStringHeight() + 3 or 0) + GAP
 
