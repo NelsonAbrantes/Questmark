@@ -90,7 +90,7 @@ Core.defaults = {
   profile = {
     -- Fade
     fade = true,              -- the tracker fades out when you're not using it
-    holdTime = 8,             -- seconds before it fades out
+    holdTime = 25,            -- seconds before it fades out
     fadeInDuration = 0.3,
     fadeOutDuration = 0.8,
     fadedAlpha = 0,           -- how visible it stays when faded (0 = hidden)
@@ -98,8 +98,9 @@ Core.defaults = {
     showOnProgress = true,    -- comes back for a while when an objective changes
 
     -- Look
-    font = "Friz Quadrata TT",
-    fontFlags = "",
+    -- (the game's own narrow font: everyone has it)
+    font = "Arial Narrow",
+    fontFlags = "OUTLINE",
     headerFontSize = 14,      -- section titles ("Quests") and quest names
     lineFontSize = 12,        -- objectives
     backgroundOpacity = 0.25, -- the Glass fading background behind the tracker
@@ -107,16 +108,16 @@ Core.defaults = {
     backgroundSize = 36,      -- how far the background reaches past the text
     lineSpacing = 0,          -- extra space between the lines of a text
     width = 260,              -- tracker width
-    maxHeight = 650,          -- the highest the tracker gets; past it, it scrolls (0: no limit)
-    titleColor = "glass",     -- section titles ("Quests"), zone names, bars; see Core.COLORS
+    maxHeight = 700,          -- the highest the tracker gets; past it, it scrolls (0: no limit)
+    titleColor = "gold",      -- section titles ("Quests"), zone names, bars; see Core.COLORS
     questNameColor = "auto",  -- quest names; "auto" = by difficulty, like the game
     iconColor = "glass",      -- quest and minimize icons
     iconOutline = true,       -- a dark outline around the icons
-    hideMainHeader = false,   -- hide the "Objectives" title
+    hideMainHeader = true,    -- hide the "Objectives" title
     hideSectionHeaders = false, -- hide the section titles ("Quests"...)
 
     questCount = true,        -- "Quests 12/25" in the Quests title
-    completedObjectives = "show", -- finished objectives: show or dim
+    completedObjectives = "dim", -- finished objectives: show or dim
     glassBars = true,         -- progress bars in the title color (off: the game's green)
     sectionAnimation = "glass", -- animations: glass or off
 
@@ -127,10 +128,10 @@ Core.defaults = {
     -- Behavior
     allQuests = true,         -- every quest in the quest log, not only the tracked ones
     bookKey = true,           -- the quest log's key (L) opens the quest book
-    bookSize = 100,           -- the quest book's size (% of its own; also its corner)
-    bookTextSize = 12,        -- its writing and list
+    bookSize = 108,           -- the quest book's size (% of its own; also its corner)
+    bookTextSize = 9,         -- its writing and list
     bookTitleSize = 24,       -- its titles (headings and zones go with it)
-    bookMapSize = 100,        -- its map (% of the page, Show map)
+    bookMapSize = 88,         -- its map (% of the page, Show map)
     bookMapZoom = 1,          -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
     bookSounds = true,        -- its sounds (opening, shutting, page turns)

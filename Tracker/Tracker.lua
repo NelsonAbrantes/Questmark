@@ -987,7 +987,7 @@ end
 -- down from its top, on the side of the screen it's on.
 
 local layoutName
-local DEFAULT = { point = "TOPRIGHT", x = -85, y = -260 }
+local DEFAULT = { point = "TOPRIGHT", x = -106, y = -313 }
 
 local function Position()
   local positions = Profile().positions

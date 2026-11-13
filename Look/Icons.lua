@@ -87,6 +87,9 @@ local animator = CreateFrame("Frame")
 animator:Hide()
 
 animator:SetScript("OnUpdate", function ()
+  -- (nothing to see while the tracker is faded out: the "?" of a quest ready
+  -- to turn in pulses for as long as it's there, so this matters)
+  if Core.frame:GetEffectiveAlpha() < 0.02 or not Core.frame:IsVisible() then return end
   local now = GetTime()
   for button, state in pairs(animated) do
     local scale, alpha = 1, 1

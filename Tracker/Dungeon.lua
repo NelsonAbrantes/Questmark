@@ -30,6 +30,7 @@ local KEEP_RUN = 15 * 60 -- seconds outside before a run is over (a corpse run k
 local function Profile() return Core.db.profile end
 
 local inside = false
+local clock -- the once-a-second clock (below): it only runs inside
 local LookForDeadBosses, CountGroupDeaths -- below
 local events = CreateFrame("Frame")
 
@@ -174,6 +175,7 @@ local function UpdateInside()
   local inInstance, instanceType = IsInInstance()
   local wasInside = inside
   inside = inInstance and (instanceType == "party" or instanceType == "raid") or false
+  if inside and clock then clock:Show() end
   if inside then
     local instanceID, name = InstanceID()
     local run = Run()
@@ -427,6 +429,7 @@ function Core.DungeonDemo(typed)
     levels = dungeon and dungeon.level or "35-40", id = "demo:"..name,
   }
   local current = demo
+  if clock then clock:Show() end
   if Core.Reveal then Core.Reveal() end
   Core.Refresh()
   -- The bosses die one after the other (the rare ones too)
@@ -512,10 +515,15 @@ events:SetScript("OnEvent", function (_, event, ...)
   Core.Refresh()
 end)
 
--- The clock: once a second, only its line changes (and only inside)
-local ticker = CreateFrame("Frame")
+-- The clock: once a second, only its line changes (and only inside: it
+-- stops outside, and starts again on going in or with the test card)
+clock = CreateFrame("Frame")
 local sinceTick = 0
-ticker:SetScript("OnUpdate", function (_, elapsed)
+clock:SetScript("OnUpdate", function (self, elapsed)
+  if not inside and not demo then
+    self:Hide()
+    return
+  end
   sinceTick = sinceTick + elapsed
   if sinceTick < 1 then return end
   sinceTick = 0

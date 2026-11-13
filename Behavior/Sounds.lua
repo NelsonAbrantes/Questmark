@@ -89,23 +89,32 @@ end
 
 -- The quest log changes in bursts: check once after each burst
 local pending = false
+local function CheckNow()
+  pending = false
+  Check()
+end
 local function CheckSoon()
   if pending then return end
   pending = true
-  C_Timer.After(0.2, function ()
-    pending = false
-    Check()
-  end)
+  C_Timer.After(0.2, CheckNow)
 end
 
 local events = CreateFrame("Frame")
 events:SetScript("OnEvent", CheckSoon)
 
-Core:OnChange(function (key)
-  if key == "enable" then
+-- Only listened to while the sound is on (Options)
+local function Listen()
+  if Core.db.profile.completeSound then
     events:RegisterEvent("QUEST_LOG_UPDATE")
     events:RegisterEvent("QUEST_WATCH_UPDATE")
     -- The first look only remembers how things are (no sounds on login)
     CheckSoon()
+  else
+    events:UnregisterAllEvents()
+    hasKnown = false
   end
+end
+
+Core:OnChange(function (key)
+  if key == "enable" or key == "completeSound" or key == "profile" then Listen() end
 end)
