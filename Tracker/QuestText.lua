@@ -1120,6 +1120,9 @@ function ShowMapView(show)
   if show == mapView:IsShown() then return end
   mapView:SetShown(show)
   textScroll:SetShown(not show and selected ~= nil)
+  -- (the page's dog-eared corner would cover the map's corner: away while
+  -- the map shows)
+  if book.grip then book.grip:SetShown(not show) end
   if show and Core:Animates() and book:IsShown() then mapView.fadeIn:Play() end
   UpdateButtons()
   UpdateFades()
@@ -1243,8 +1246,14 @@ local function BuildFlip()
   sheetShadow:SetColorTexture(1, 1, 1, 1)
   -- (the page's dog-eared corner is over the sheets' layer: away while a
   -- sheet or the cover turns, or it shows over it)
-  flipLayer:SetScript("OnShow", function () if book.grip then book.grip:SetAlpha(0) end end)
-  flipLayer:SetScript("OnHide", function () if book.grip then book.grip:SetAlpha(writingAlpha) end end)
+  -- (the map's corner tape too, put over it: see Select)
+  local function Over(alpha)
+    if book.grip then book.grip:SetAlpha(alpha) end
+    local tapes = Core.QuestMapTapes and Core.QuestMapTapes()
+    if tapes then tapes:SetAlpha(alpha > 0 and 1 or 0) end
+  end
+  flipLayer:SetScript("OnShow", function () Over(0) end)
+  flipLayer:SetScript("OnHide", function () Over(writingAlpha) end)
   flipLayer:Hide()
 end
 
@@ -1777,6 +1786,7 @@ function Select(questID)
     Core.HideQuestMap()
     selectedHasMap = false
     mapView:Hide()
+    if book.grip then book.grip:Show() end
     textScroll:Hide()
     hint:Show()
     UpdateButtons()
@@ -1788,8 +1798,16 @@ function Select(questID)
   -- The writing the whole page; the map over it with Show map (and for a
   -- quest opened from the map)
   selectedHasMap = Core.ShowQuestMap(questID, mapHolder)
+  -- (the tape on the map's bottom right corner was under the page's
+  -- dog-eared corner: put over it, away while a sheet turns, see BuildFlip)
+  local tapes = Core.QuestMapTapes and Core.QuestMapTapes()
+  if tapes and not tapes.raised then
+    tapes.raised = true
+    tapes:SetFrameLevel(book:GetFrameLevel() + 76)
+  end
   mapView:SetShown(selectedHasMap and wantMap or false)
   textScroll:SetShown(not mapView:IsShown())
+  if book.grip then book.grip:SetShown(not mapView:IsShown()) end
   textScroll:ClearAllPoints()
   textScroll:SetPoint("TOPLEFT")
   -- (the buttons under it: Track, Share, Abandon)

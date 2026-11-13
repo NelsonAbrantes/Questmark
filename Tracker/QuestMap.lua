@@ -43,7 +43,12 @@ local CONTINENT = MapType.Continent or 2
 -- whole zone again.
 
 local map, canvas, pin, arrow, zone, top, edgeMask, zoneBack
-local TAPE, TAPE_IN = 46, 7 -- the linen tape on the map's corners: size, how far in
+local PlaceTapes -- (below)
+-- The linen tape on the map's corners: its size (at least, and for the map's
+-- size), and how far in it sits, for the map's size (where the torn edge's
+-- corners are: Assets/mapMask)
+local TAPE, TAPE_SIZE = 46, 0.15
+local tapes, holds = {}, nil
 local others = {} -- the other quests' balls, kept
 local shownQuest -- the quest the map is for
 local textures = {} -- the zones' pictures, kept
@@ -375,6 +380,17 @@ local function Cursor()
   return x / scale - map:GetLeft(), map:GetTop() - y / scale
 end
 
+-- The tape on the corners, for the map's size
+function PlaceTapes()
+  local size = math.max(TAPE, math.min(WIDTH, HEIGHT) * TAPE_SIZE)
+  for _, tape in ipairs(tapes) do
+    local at = tape.at
+    tape:SetSize(size, size)
+    tape:ClearAllPoints()
+    tape:SetPoint("CENTER", map, at[1], at[2] * WIDTH, at[3] * HEIGHT)
+  end
+end
+
 local function Build(holder)
   WIDTH, HEIGHT = holder:GetWidth(), holder:GetHeight()
   map = CreateFrame("Frame", nil, holder)
@@ -411,20 +427,24 @@ local function Build(holder)
   -- Pieces of old linen tape across its corners, holding it to the
   -- page (Assets/tape, see Tools/tape.py; over its edge: in a frame of their
   -- own, so the map doesn't cut them)
-  local holds = CreateFrame("Frame", nil, holder)
+  holds = CreateFrame("Frame", nil, holder)
   holds:SetAllPoints()
   holds:SetFrameLevel(map:GetFrameLevel() + 20)
   holds:Hide()
+  -- (which corner, which way in and how far, in parts of the map's size:
+  -- across the torn corner, half on it; the bottom right one is torn deeper;
+  -- and the picture mirrored for the other corners)
   for _, at in ipairs({
-    { "TOPLEFT", TAPE_IN, -TAPE_IN, 0, 1, 0, 1 }, { "TOPRIGHT", -TAPE_IN, -TAPE_IN, 1, 0, 0, 1 },
-    { "BOTTOMLEFT", TAPE_IN, TAPE_IN, 0, 1, 1, 0 }, { "BOTTOMRIGHT", -TAPE_IN, TAPE_IN, 1, 0, 1, 0 },
+    { "TOPLEFT", 0.045, -0.045, 0, 1, 0, 1 }, { "TOPRIGHT", -0.05, -0.05, 1, 0, 0, 1 },
+    { "BOTTOMLEFT", 0.05, 0.05, 0, 1, 1, 0 }, { "BOTTOMRIGHT", -0.065, 0.065, 1, 0, 1, 0 },
   }) do
     local tape = Core.Smooth(holds:CreateTexture(nil, "ARTWORK"))
     tape:SetTexture(Core.ASSETS.."tape")
-    tape:SetTexCoord(at[4], at[5], at[6], at[7]) -- (the picture mirrored for the other corners)
-    tape:SetSize(TAPE, TAPE)
-    tape:SetPoint("CENTER", map, at[1], at[2], at[3])
+    tape:SetTexCoord(at[4], at[5], at[6], at[7])
+    tape.at = at
+    tapes[#tapes + 1] = tape
   end
+  PlaceTapes()
   shade.holds = holds
 
   -- The zone's name, in the book's ink (a light glow behind, to read on the map)
@@ -590,6 +610,14 @@ function Core.QuestMapResize(width, height)
   if not map then return end
   WIDTH, HEIGHT = width, height
   map:SetSize(width, height)
+  PlaceTapes()
+end
+
+---
+-- The frame of the tape on its corners (the book puts it over its page's
+-- dog-eared corner), once the map is made
+function Core.QuestMapTapes()
+  return holds
 end
 
 function Core.HideQuestMap()
