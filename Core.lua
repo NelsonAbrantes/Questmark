@@ -4,7 +4,7 @@ local Core = LibStub("AceAddon-3.0"):NewAddon(AddonName, "AceHook-3.0")
 ns.Core = Core
 _G.Questmark = Core
 
-Core.Version = "0.1.0-forever"
+Core.Version = "0.1.0"
 Core.LSM = LibStub("LibSharedMedia-3.0")
 Core.listeners = {} -- filled while the files load, see Core:OnChange
 Core.ASSETS = "Interface\\AddOns\\Questmark\\Assets\\"

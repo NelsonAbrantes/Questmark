@@ -30,10 +30,11 @@ local function Notify(message)
   print("|c00DFBA69Questmark|r: " .. message)
 end
 
--- "0.1.0-forever" -> 0, 1, 0. Only versions named this way count.
+-- "0.1.0" -> 0, 1, 0. Only versions named this way count (the copies made
+-- before the first release said "-forever" after it: still read).
 local function Parse(version)
   if type(version) ~= "string" then return nil end
-  local major, minor, patch = version:match("^(%d+)%.(%d+)%.(%d+)%-forever$")
+  local major, minor, patch = version:gsub("%-forever$", ""):match("^(%d+)%.(%d+)%.(%d+)$")
   if not major then return nil end
   return tonumber(major), tonumber(minor), tonumber(patch)
 end
