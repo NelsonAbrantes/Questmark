@@ -594,7 +594,7 @@ function Core.ShowQuestMap(questID, holder)
   if questX then
     -- Opens zoomed in on the quest's place (right click: the whole zone)
     -- (how close: Options, Quest book)
-    zoom = Core.db.profile.bookMapZoom or 1.5
+    zoom = Core.db.profile.bookMapZoom or 1
     local scale = Scale()
     ox = questX * layerW * scale - WIDTH / 2
     oy = questY * layerH * scale - HEIGHT / 2

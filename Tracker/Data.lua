@@ -216,6 +216,7 @@ local function DifficultyColor(questID, level)
   end
   return 0.75, 0.61, 0
 end
+Core.DifficultyColor = DifficultyColor
 
 -- The quest name color: chosen in the options, or by difficulty
 local function QuestColor(questID, level)

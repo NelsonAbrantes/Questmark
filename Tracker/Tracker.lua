@@ -934,8 +934,8 @@ local function Menu(block)
     if entry.kind == "quest" then
       root:CreateButton(entry.super and "Stop following" or "Follow", function () Follow(entry.id) end)
       if Core.BookOn() then
-        root:CreateButton("Read quest", function () Open(entry) end)
-        root:CreateButton("All quests", Core.ShowQuestList)
+        root:CreateButton("Show in quest log", function () Open(entry) end)
+        root:CreateButton("Show on map", function () Core.ShowQuestText(entry.id, true) end)
       end
       if C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(entry.id) and _G.IsInGroup() then
         root:CreateButton("Share", function () Share(entry.id) end)

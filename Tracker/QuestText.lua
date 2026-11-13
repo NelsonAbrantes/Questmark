@@ -99,7 +99,7 @@ Font("Zone", "Fonts\\MORPHEUS.TTF", 15)
 Font("Text", "Fonts\\FRIZQT__.TTF", 12, 2)
 Font("Small", "Fonts\\FRIZQT__.TTF", 11)
 Font("Badge", "Fonts\\FRIZQT__.TTF", 10)
-Font("Stamp", "Fonts\\MORPHEUS.TTF", 18)
+Font("Stamp", "Fonts\\MORPHEUS.TTF", 21)
 Font("Button", "Fonts\\MORPHEUS.TTF", 13)
 Core.bookFonts = fonts
 
@@ -213,6 +213,16 @@ end
 
 ---
 -- Every quest taken, under its zone: { header, title, quests } or { questID, title, done, tags }
+-- A quest's difficulty for you: the game's own colors (red, orange, yellow,
+-- green, grey), as in its quest log and the tracker (a dark shadow under the
+-- list's quests makes them read on the paper)
+local function DifficultyInk(questID, level)
+  if not Core.DifficultyColor then return INK end
+  local r, g, b = Core.DifficultyColor(questID, level)
+  if not (r and g and b) then return INK end
+  return { r, g, b }
+end
+
 local function QuestList()
   -- (the log can have the same zone twice, as two groups: one zone here, in
   -- the place of its first group, with the quests of both)
@@ -240,6 +250,7 @@ local function QuestList()
         questID = info.questID,
         title = info.title or "",
         done = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID),
+        level = info.level,
         tags = Tags(info.questID, info.frequency),
         zone = header,
       }
@@ -554,6 +565,7 @@ end
 
 local MARK_SIZE = 17
 local MARK_GOING, MARK_DONE = "QuestNormal", "QuestTurnin"
+local DONE_MARK = 15 -- the "?" after a quest done in the list
 local markLayer, marker
 
 function UpdateMarker()
@@ -581,8 +593,8 @@ function UpdateMarker()
     marker:Hide()
     return
   end
-  local done = C_QuestLog.IsComplete(selected)
-  local mark = done and MARK_DONE or MARK_GOING
+  -- (always the "!": a quest done has its "?" after its name already)
+  local mark = MARK_GOING
   if Atlas(mark) then
     marker:SetAtlas(mark)
   else
@@ -973,19 +985,44 @@ local function BuildRight()
   word:SetFontObject(fonts.Stamp)
   word:SetText("Completed")
   word:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-  word:SetPoint("CENTER")
-  -- (stamped down: from big and faint to its place)
+  word:SetPoint("CENTER", -1, 0)
+  -- Stamped like a rubber stamp: it comes down from above the page, faster
+  -- and faster, onto it; the ink is dark at first and soaks into the paper;
+  -- the page jolts with the blow
   local thump = stamp:CreateAnimationGroup()
-  local grow = thump:CreateAnimation("Scale")
-  grow:SetScaleFrom(1.7, 1.7)
-  grow:SetScaleTo(1, 1)
-  grow:SetDuration(0.22)
-  grow:SetSmoothing("IN")
-  local fade = thump:CreateAnimation("Alpha")
-  fade:SetFromAlpha(0)
-  fade:SetToAlpha(STAMP_ALPHA)
-  fade:SetDuration(0.16)
+  local down = thump:CreateAnimation("Scale")
+  down:SetScaleFrom(2.4, 2.4)
+  down:SetScaleTo(1, 1)
+  down:SetDuration(0.17)
+  down:SetSmoothing("IN")
+  down:SetOrder(1)
+  local show = thump:CreateAnimation("Alpha")
+  show:SetFromAlpha(0)
+  show:SetToAlpha(1)
+  show:SetDuration(0.1)
+  show:SetOrder(1)
+  local soak = thump:CreateAnimation("Alpha")
+  soak:SetFromAlpha(1)
+  soak:SetToAlpha(STAMP_ALPHA)
+  soak:SetDuration(0.6)
+  soak:SetSmoothing("OUT")
+  soak:SetOrder(2)
   stamp.thump = thump
+  -- (the jolt: the page's writing knocked down a little and back)
+  local jolt = rightContent:CreateAnimationGroup()
+  local knock = jolt:CreateAnimation("Translation")
+  knock:SetOffset(0, -2)
+  knock:SetDuration(0.04)
+  knock:SetOrder(1)
+  local rise = jolt:CreateAnimation("Translation")
+  rise:SetOffset(0, 2)
+  rise:SetDuration(0.1)
+  rise:SetSmoothing("OUT")
+  rise:SetOrder(2)
+  thump:SetScript("OnPlay", function ()
+    jolt:Stop()
+    _G.C_Timer.After(0.17, function () if thump:IsPlaying() then jolt:Play() end end)
+  end)
   stamp:Hide()
   tags = textContent:CreateFontString(nil, "ARTWORK")
   tags:SetFontObject(fonts.Small)
@@ -1419,6 +1456,11 @@ local function Driver(_, elapsed)
       Writing(Ease(p))
       if p >= 1 then
         opening = nil
+        -- (a quest done: its stamp comes down now, the page all there)
+        if stamp:IsShown() then
+          stamp:SetAlpha(STAMP_ALPHA)
+          stamp.thump:Play()
+        end
         UpdateFades()
       end
     end
@@ -1588,13 +1630,10 @@ function FillList()
       row.questID = item.questID
       row.zone = item.header and item.title or nil
       row.text:SetFontObject(item.header and fonts.Zone or fonts.Text)
-      -- (the zones' gold with a soft dark brown shadow, to stand out of the paper)
-      if item.header then
-        row.text:SetShadowColor(0.20, 0.09, 0.0, 0.95)
-        row.text:SetShadowOffset(1, -1)
-      else
-        row.text:SetShadowOffset(0, 0)
-      end
+      -- (the zones' gold and the quests' colors with a soft dark brown
+      -- shadow, to stand out of the paper)
+      row.text:SetShadowColor(0.20, 0.09, 0.0, item.header and 0.95 or 0.8)
+      row.text:SetShadowOffset(1, -1)
       row.text:ClearAllPoints()
       if item.header then
         local closed = collapsed[item.title]
@@ -1612,8 +1651,14 @@ function FillList()
       else
         row.toggle:Hide()
         row.count:Hide()
-        row.color = item.done and GREEN or INK
+        -- (its difficulty's color; done: the game's "?" to give it back after it)
+        row.color = DifficultyInk(item.questID, item.level)
         local text = item.title
+        if item.done then
+          -- (the game sizes atlas icons with the letters: the same number fits
+          -- any text size)
+          text = Atlas(MARK_DONE) and ("%s |A:%s:%d:%d|a"):format(text, MARK_DONE, DONE_MARK, DONE_MARK) or text
+        end
         if item.tags ~= "" then text = text.."  "..FADED_HEX..item.tags.."|r" end
         row.text:SetText(text)
         row.text:SetPoint("TOPLEFT")
@@ -1678,8 +1723,13 @@ function FillText(questID, keep)
   local done = C_QuestLog.IsComplete(questID) and true or false
   local wasShown = stamp:IsShown()
   stamp:SetShown(done)
-  -- (during a page turn, once the page lands: see the turn's end)
-  if done and (not keep or not wasShown) and Core:Animates() and not flip then stamp.thump:Play() end
+  -- (during a page turn, once the page lands; the book opening, once its
+  -- writing is all there: see the animations)
+  local later = flip or writingAlpha < 1
+  if done and (not keep or not wasShown) and Core:Animates() then
+    -- (not there at all until it comes down)
+    if later then stamp:SetAlpha(0) else stamp.thump:Play() end
+  end
   local index = C_QuestLog.GetLogIndexForQuestID(questID)
   local info = index and C_QuestLog.GetInfo(index)
   -- (the kind's icon right after the name, a little bigger; the words below)
@@ -1879,15 +1929,16 @@ end
 
 ---
 -- Opens the book on a quest; the same quest again closes it
-function Core.ShowQuestText(questID)
+-- (onMap: on its map, shown over the page, when it has one)
+function Core.ShowQuestText(questID, onMap)
   if not Core.BookOn() then return end
   if book and book:IsShown() and not closing and selected == questID then
-    CloseBook()
+    if onMap then ShowMapView(true) else CloseBook() end
     return
   end
   local wasShown = book and book:IsShown()
   Open()
-  wantMap = false
+  wantMap = onMap and true or false
   if wasShown then Turn(questID) else Select(questID) end
 end
 
@@ -1962,7 +2013,8 @@ local function Gather()
   if not (bookLeft and top) then return 0 end
   local area = 0
   local function Add(region, always)
-    if not (region and region:IsVisible()) then return end
+    -- (not what can't be seen)
+    if not (region and region:IsVisible()) or region:GetAlpha() <= 0.01 then return end
     local left, regionTop = region:GetLeft(), region:GetTop()
     local width, height = region:GetWidth(), region:GetHeight()
     if not (left and regionTop) or width < 1 or height < 1 then return end
@@ -2158,7 +2210,7 @@ local function UpdateFonts()
   Size("Title", title)
   Size("Heading", title * 0.71)
   Size("Zone", title * 0.62)
-  Size("Stamp", title * 0.75)
+  Size("Stamp", title * 0.88)
   Size("Button", title * 0.54)
 end
 
