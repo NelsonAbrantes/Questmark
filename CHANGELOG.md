@@ -4,18 +4,16 @@ Versions are named `X.Y.Z`: `0.x` while in beta.
 
 ## 0.2.0 (beta)
 
-- Quest GPS: an arrow on the screen to the quest followed.
-- Navigation marker: the game's mark on the screen, even with Questie.
-- Click a quest's name to read it in the book, its icon to follow it.
-- Questie: following a quest follows it in Questie too; click its map icons to follow.
-- Dungeon card: click a boss for its loot (ForeverDungeonJournal or AtlasLoot).
-- Dungeon card: a reset dungeon starts a new run.
-- Boss faces learned in game and shared with the group.
-- Accept and turn in quests by themselves (option).
-- Quest levels before quest names (option).
-- Quest book: list font, size and colors; Shift-click links a quest.
-- Show map works before the game's map was opened.
-- Barlow Condensed font included.
+- Quest GPS arrow and navigation marker
+- Click a quest name to open it in the book, its icon to follow it
+- Questie support
+- Click a boss face for its loot (needs ForeverDungeonJournal or AtlasLoot)
+- Dungeon card resets with the dungeon
+- Boss faces shared with the group
+- Auto accept and turn in quests (option)
+- Quest levels (option)
+- Quest book list font, size and colors
+- Shift-click a quest in the book to link it
 
 ## 0.1.0 (beta)
 
