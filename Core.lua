@@ -86,6 +86,16 @@ function Core.Readable(value)
   return value ~= nil and not (issecretvalue and issecretvalue(value))
 end
 
+---
+-- A quest's name, with its level before it when that's on (Options: Quest
+-- levels): "[12] The Defias Brotherhood"
+function Core.QuestName(title, level)
+  if Core.db.profile.questLevels and level and level > 0 then
+    return ("[%d] %s"):format(level, title or "")
+  end
+  return title
+end
+
 Core.defaults = {
   profile = {
     -- Fade
@@ -98,8 +108,8 @@ Core.defaults = {
     showOnProgress = true,    -- comes back for a while when an objective changes
 
     -- Look
-    -- (the game's own narrow font: everyone has it)
-    font = "Arial Narrow",
+    -- (it comes with Questmark, see Fonts.lua)
+    font = "Barlow Condensed SemiBold",
     fontFlags = "OUTLINE",
     headerFontSize = 14,      -- section titles ("Quests") and quest names
     lineFontSize = 12,        -- objectives
@@ -129,8 +139,12 @@ Core.defaults = {
     allQuests = true,         -- every quest in the quest log, not only the tracked ones
     bookKey = true,           -- the quest log's key (L) opens the quest book
     bookSize = 108,           -- the quest book's size (% of its own; also its corner)
-    bookTextSize = 9,         -- its writing and list
-    bookTitleSize = 24,       -- its titles (headings and zones go with it)
+    bookTextSize = 9,         -- its writing (the quest's page)
+    bookTitleSize = 24,       -- its titles (headings go with it)
+    bookListFont = "",        -- its quest list's font ("": the book's own letters)
+    bookListSize = 9,         -- its quest list (the zones go with it)
+    bookZoneColor = "cream",  -- the list's zones: cream, yellow or one of Core.COLORS
+    bookQuestColor = "auto",  -- the list's quests: "auto" = by difficulty, cream or one of Core.COLORS
     bookMapSize = 88,         -- its map (% of the page, Show map)
     bookMapZoom = 1,          -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
@@ -144,7 +158,20 @@ Core.defaults = {
     dungeonInfo = true,
     dungeonAlwaysShow = true, -- in dungeons and raids the tracker doesn't fade out       -- in dungeons and raids: time, bosses, experience and gold of the run
     completeSound = true,     -- a sound when an objective or quest is done
+    questItemMarks = true,    -- quest items no longer needed: said in their tooltip, marked in Baganator
     orcVoice = true,          -- quest ready to turn in: the orc peon's "Work complete!"
+    questLevels = false,      -- quest names with their level before them ("[12] ...")
+    autoQuests = false,       -- quests taken and given back by themselves (Shift: not)
+    bossLoot = "journal",     -- a boss clicked in the dungeon card: journal or atlasloot
+    gpsArrow = true,          -- the quest GPS: an arrow on the screen to the quest followed
+    gpsPosition = nil,        -- where it is (dragged): point, x, y; nil: near the top
+    gpsStyle = "arrow",       -- its shape: arrow, chevron, double, triangle, needle or dart
+    gpsSize = 44,             -- its size
+    gpsColor = "title",       -- its color: "title" = like the titles, or one of Core.COLORS
+    gpsTextSize = 13,         -- the distance's size (the quest's name a little smaller)
+    gpsUnits = "yards",       -- the distance in yards or meters
+    gpsQuestName = true,      -- the quest's name under the distance
+    navMarker = false,        -- the game's navigation mark on the screen (its in-game navigation)
 
     -- Where the tracker is, per Edit Mode layout (layout name -> point, x, y)
     positions = {},
@@ -170,6 +197,12 @@ function Core:OnInitialize()
     profile.glassGoldDefault = true
     if profile.titleColor == "gold" then profile.titleColor = "glass" end
     if profile.iconColor == "gold" then profile.iconColor = "glass" end
+  end
+
+  -- The quest list got a size of its own: it starts as the text size it had
+  if not profile.bookListSizeSet then
+    profile.bookListSizeSet = true
+    if rawget(profile, "bookTextSize") then profile.bookListSize = profile.bookTextSize end
   end
 
   local function Refresh() self:Changed("profile") end

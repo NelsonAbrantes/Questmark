@@ -55,7 +55,8 @@ end
 -- 1. the game's encounter journal, if it has one for this dungeon
 -- 2. the ForeverDungeonJournal addon, if it's installed (it knows the
 --    dungeons added by WoW: Forever)
--- 3. the bosses killed in this dungeon before, which the addon learns
+-- 3. AtlasLoot, if it's installed
+-- 4. the bosses killed in this dungeon before, which the addon learns
 -- Rare bosses are marked: they don't always show, so a run is done without
 -- them.
 
@@ -117,6 +118,126 @@ local function JournalAddon(name)
   return #bosses > 0 and bosses or nil
 end
 
+----
+-- A click on a boss in the card: its loot, in the journal addon or in
+-- AtlasLoot (Options: Boss loot; the other one if that one isn't there)
+
+-- The journal addon on the boss's page. False if it can't.
+local function JournalLoot(dungeonName, bossName)
+  local dungeon, journal, key = JournalDungeon(dungeonName)
+  if not dungeon or type(dungeon.bosses) ~= "table" or type(journal.OpenBossPage) ~= "function" then return false end
+  for i, boss in ipairs(dungeon.bosses) do
+    local found = type(boss) == "table" and boss.name == bossName
+    for _, alias in ipairs(type(boss) == "table" and type(boss.aliases) == "table" and boss.aliases or {}) do
+      if alias == bossName then found = true end
+    end
+    if found then
+      local frame = _G.ForeverDungeonJournalFrame
+      if frame and not frame:IsShown() then frame:Show() end
+      pcall(journal.OpenBossPage, key, i)
+      return true
+    end
+  end
+  return false
+end
+
+-- AtlasLoot on the boss. Its dungeons load when first needed (not in
+-- combat, so then it can't). Found by the dungeon's map, else its name; the
+-- boss by its creature, else its name. False if it can't.
+local ATLAS_MODULE = "AtlasLootClassic_DungeonsAndRaids"
+
+-- AtlasLoot's dungeons and raids (nil without it, or in combat before it
+-- loaded them), and AtlasLoot
+local function AtlasData()
+  local AL = _G.AtlasLoot
+  if type(AL) ~= "table" or not (AL.Loader and AL.ItemDB) then return nil end
+  if not AL.Loader:IsModuleLoaded(ATLAS_MODULE) then
+    if _G.InCombatLockdown() then return nil end
+    pcall(AL.Loader.LoadModule, AL.Loader, ATLAS_MODULE)
+  end
+  local ok, data = pcall(AL.ItemDB.Get, AL.ItemDB, ATLAS_MODULE)
+  if not ok or type(data) ~= "table" then return nil end
+  return data, AL
+end
+
+-- A dungeon's name in AtlasLoot, without the picture after it
+local function AtlasName(dungeon)
+  if type(dungeon) ~= "table" or type(dungeon.name) ~= "string" or type(dungeon.items) ~= "table" then return nil end
+  local name = dungeon.name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")
+  return strtrim(name)
+end
+
+-- The AtlasLoot dungeon called `name` (the classic one over a later one
+-- with the same name)
+local function AtlasDungeon(name)
+  local data, AL = AtlasData()
+  local found
+  for _, dungeon in pairs(data or {}) do
+    if AtlasName(dungeon) == name then
+      if dungeon.gameVersion == AL.CLASSIC_VERSION_NUM or dungeon.gameVersion == 0 then return dungeon end
+      found = found or dungeon
+    end
+  end
+  return found
+end
+
+-- The bosses of a dungeon in AtlasLoot
+local function AtlasBosses(name)
+  local dungeon = AtlasDungeon(name)
+  local bosses = {}
+  for _, item in ipairs(dungeon and dungeon.items or {}) do
+    if type(item) == "table" and type(item.name) == "string" and item.npcID then
+      -- (its face: the first of the creatures AtlasLoot draws for it)
+      local displays = type(item.DisplayIDs) == "table" and item.DisplayIDs[1]
+      local display = type(displays) == "table" and displays[1] or displays
+      table.insert(bosses, { name = item.name, npcID = tonumber(item.npcID), display = tonumber(display) })
+    end
+  end
+  return #bosses > 0 and bosses or nil
+end
+
+local function AtlasLoot(entry, boss)
+  local data, AL = AtlasData()
+  local frame = AL and AL.GUI and AL.GUI.frame
+  if not (data and frame and frame.moduleSelect and frame.subCatSelect and frame.boss) then return false end
+  local classic = AL.CLASSIC_VERSION_NUM
+  local key, bossIndex, best
+  for name, dungeon in pairs(data) do
+    if AtlasName(dungeon) then
+      local same = (type(entry.id) == "number" and dungeon.InstanceID == entry.id)
+        or AtlasName(dungeon) == entry.title
+      if same then
+        for i, item in ipairs(dungeon.items) do
+          if type(item) == "table" and ((boss.npcID and item.npcID == boss.npcID) or item.name == boss.name) then
+            -- (the classic dungeon over the later one with the same map)
+            local rank = (dungeon.gameVersion == classic or dungeon.gameVersion == 0) and 2 or 1
+            if not best or rank > best then key, bossIndex, best = name, i, rank end
+            break
+          end
+        end
+      end
+    end
+  end
+  if not key then return false end
+  if not frame:IsShown() then frame:Show() end
+  local version = data[key].gameVersion
+  local saved = AL.db and AL.db.GUI
+  if saved and version and version ~= 0 then saved.selectedGameVersion = version end
+  pcall(frame.moduleSelect.SetSelected, frame.moduleSelect, ATLAS_MODULE)
+  pcall(frame.subCatSelect.SetSelected, frame.subCatSelect, key)
+  pcall(frame.boss.SetSelected, frame.boss, bossIndex)
+  return true
+end
+
+function Core.OpenBossLoot(entry, boss)
+  if not entry or not boss then return end
+  if Core.db.profile.bossLoot == "atlasloot" then
+    if not AtlasLoot(entry, boss) then JournalLoot(entry.title, boss.name) end
+  elseif not JournalLoot(entry.title, boss.name) then
+    AtlasLoot(entry, boss)
+  end
+end
+
 -- Bosses killed in each dungeon before (dungeon name -> names, in the order
 -- they were killed), for every character
 local function Learned(name)
@@ -139,18 +260,21 @@ local function Learn(dungeon, bossName)
   table.insert(learned, bossName)
 end
 
--- The faces of bosses no journal has a picture of, learned when one is seen
--- (boss name -> what the game draws for it), for every character
+-- The faces of bosses, learned when one is seen or from the group (boss
+-- name -> what the game draws for it), for every character. Only ones the
+-- game showed: never the journal addons' pictures.
 local function Faces()
   Core.db.global.learnedFaces = Core.db.global.learnedFaces or {}
   return Core.db.global.learnedFaces
 end
 
+-- A boss's face: a journal addon's, else one learned, else the addon's own
+-- list (DungeonFaces.lua)
 local function BossList(name)
-  local bosses = GameJournal() or JournalAddon(name) or Learned(name)
-  local faces = Faces()
+  local bosses = GameJournal() or JournalAddon(name) or AtlasBosses(name) or Learned(name)
+  local faces, known = Faces(), Core.KNOWN_FACES or {}
   for _, boss in ipairs(bosses or {}) do
-    boss.display = boss.display or faces[boss.name]
+    boss.display = boss.display or faces[boss.name] or known[boss.name]
   end
   return bosses
 end
@@ -171,6 +295,15 @@ local function StartRun(instanceID, name)
   }
 end
 
+-- How things were when you last came in: a run found to be in a new copy of
+-- the dungeon (below) starts from then
+local function EntrySnapshot()
+  return {
+    start = time(), money = GetMoney(),
+    level = UnitLevel("player"), xp = UnitXP("player"), max = UnitXPMax("player"),
+  }
+end
+
 local function UpdateInside()
   local inInstance, instanceType = IsInInstance()
   local wasInside = inside
@@ -183,6 +316,10 @@ local function UpdateInside()
       StartRun(instanceID, name)
     else
       run.seen = time()
+    end
+    if not wasInside then
+      Run().entry = EntrySnapshot()
+      C_Timer.After(5, Core.ShareDungeonFaces)
     end
     Run().bosses = BossList(Run().name) or Run().bosses
     -- Its icon, zone and levels, from the journal addon (and the wing's name)
@@ -282,22 +419,53 @@ function LookForDeadBosses()
   end
 end
 
+-- A reset dungeon is a new copy of it, with the same map: the run starts
+-- again (from when you came in) when a creature around shows a copy other
+-- than the run's. (A creature's GUID says which copy it's in:
+-- Creature-0-server-map-copy-npc-spawn.)
+local COPY_UNITS = { "target", "mouseover", "focus", "boss1",
+  "party1target", "party2target", "party3target", "party4target" }
+
+local function LookForNewCopy(run)
+  for _, unit in ipairs(COPY_UNITS) do
+    local guid = _G.UnitExists(unit) and _G.UnitGUID(unit)
+    if guid and Core.Readable(guid) and type(guid) == "string" then
+      local kind, _, _, map, copy = strsplit("-", guid)
+      if (kind == "Creature" or kind == "Vehicle") and copy and tonumber(map) == run.id then
+        if not run.copy then
+          run.copy = copy
+        elseif run.copy ~= copy then
+          local entry = run.entry or EntrySnapshot()
+          StartRun(run.id, run.name)
+          local new = Run()
+          new.start, new.money = entry.start, entry.money
+          new.level, new.lastXP, new.lastMax = entry.level, entry.xp, entry.max
+          new.copy, new.entry = copy, entry
+          new.bosses = BossList(run.name) or run.bosses
+          new.icon, new.location, new.levels = run.icon, run.location, run.levels
+          Core.Refresh()
+        end
+        return
+      end
+    end
+  end
+end
+
 -- A boss of the list without a face, seen (alive or dead) as your target, a
 -- group member's target or one of the encounter's bosses: what the game draws
 -- for it is learned (a hidden model shown that unit tells it), and drawn from
 -- then on
 local probe
 local function LookForFaces(run)
-  local missing = false
-  for _, boss in ipairs(run.bosses) do
-    if not boss.display then missing = true break end
-  end
-  if not missing then return end
+  local faces = Faces()
   for _, unit in ipairs(WATCHED) do
     if _G.UnitExists(unit) and not _G.UnitIsPlayer(unit) then
       local name = _G.UnitName(unit)
-      local boss = Core.Readable(name) and name and FindBoss(run, name)
-      if boss and not boss.display then
+      name = Core.Readable(name) and name or nil
+      local boss = name and FindBoss(run, name)
+      -- (the encounter's bosses too, when the list doesn't know them yet)
+      local key = boss and boss.name or (name and unit:find("^boss") and name)
+      if key and not faces[key] then
         if not probe then
           probe = CreateFrame("PlayerModel", nil, _G.UIParent)
           probe:SetSize(1, 1)
@@ -309,15 +477,89 @@ local function LookForFaces(run)
           local ok, display = pcall(probe.GetDisplayInfo, probe)
           display = ok and tonumber(display)
           if display and display > 0 then
-            boss.display = display
-            Faces()[boss.name] = display
-            Core.Refresh()
+            faces[key] = display
+            if boss and not boss.display then
+              boss.display = display
+              Core.Refresh()
+            end
           end
         end
       end
     end
   end
 end
+
+----
+-- Faces shared in the group: entering a dungeon in a group, or someone
+-- joining while you're in one, the addon tells the others the faces it
+-- learned of that dungeon's bosses, and keeps the ones it didn't know.
+-- Never in combat, at most once every 30 seconds.
+
+local FACES_PREFIX = "QuestmarkF"
+local SHARE_EVERY = 30
+local lastShared = 0
+
+local function GroupChannel()
+  if _G.IsInGroup(_G.LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+  if _G.IsInRaid() then return "RAID" end
+  if _G.IsInGroup() then return "PARTY" end
+end
+
+function Core.ShareDungeonFaces()
+  local run = inside and Run()
+  local Info = _G.C_ChatInfo
+  local channel = GroupChannel()
+  if not (run and run.bosses and channel and Info and Info.SendAddonMessage) then return end
+  if _G.InCombatLockdown() or (Info.InChatMessagingLockdown and Info.InChatMessagingLockdown()) then return end
+  if GetTime() - lastShared < SHARE_EVERY then return end
+  lastShared = GetTime()
+  local faces, known = Faces(), Core.KNOWN_FACES or {}
+  local message = ""
+  for _, boss in ipairs(run.bosses) do
+    local display = faces[boss.name]
+    -- (the ones in the addon's own list, everyone has)
+    if display and known[boss.name] ~= display then
+      local part = boss.name.."="..display
+      if #message + #part + 1 > 250 then
+        pcall(Info.SendAddonMessage, FACES_PREFIX, message, channel)
+        message = ""
+      end
+      message = message == "" and part or (message..";"..part)
+    end
+  end
+  if message ~= "" then pcall(Info.SendAddonMessage, FACES_PREFIX, message, channel) end
+end
+
+local function FacesReceived(message)
+  local faces, known = Faces(), Core.KNOWN_FACES or {}
+  local count, changed = 0, false
+  for name, display in message:gmatch("([^;=]+)=(%d+)") do
+    count = count + 1
+    if count > 40 then break end
+    display = tonumber(display)
+    if #name <= 60 and display and display > 0 and not faces[name] and not known[name] then
+      faces[name] = display
+      changed = true
+    end
+  end
+  local run = changed and inside and Run()
+  if not run then return end
+  for _, boss in ipairs(run.bosses or {}) do
+    boss.display = boss.display or faces[boss.name]
+  end
+  Core.Refresh()
+end
+
+local sharing = CreateFrame("Frame")
+sharing:SetScript("OnEvent", function (_, event, prefix, message)
+  if event == "GROUP_ROSTER_UPDATE" then
+    -- (a moment for the newcomer's addons to start)
+    if inside then C_Timer.After(5, Core.ShareDungeonFaces) end
+  elseif prefix == FACES_PREFIX and type(message) == "string"
+    and not (_G.issecretvalue and _G.issecretvalue(message)) then
+    FacesReceived(message)
+  end
+end)
 
 -- The group's deaths: once a second, who's lying dead now that wasn't a
 -- moment ago (you too). A hunter's Feign Death doesn't count.
@@ -382,14 +624,25 @@ local DEMO_BOSSES = {
   { name = "Min'loth the Serpent" }, { name = "Gill", rare = true }, { name = "Umbra", rare = true },
 }
 
--- The dungeon a typed name means ("deadmines", "scarlet library"...): the
--- journal addon's dungeon whose name has every word typed. Nil if none.
-local function FindDungeon(typed)
+-- The dungeons the journal addon and AtlasLoot know, by name
+local function DungeonNames()
   local journal = _G.ForeverDungeonJournal_NS
-  local db = type(journal) == "table" and type(journal.DB) == "table" and journal.DB
-  if not db or not typed or typed == "" then return nil end
+  local names, seen = {}, {}
+  local function Add(name)
+    if name and not seen[name] then seen[name] = true table.insert(names, name) end
+  end
+  for name in pairs(type(journal) == "table" and type(journal.DB) == "table" and journal.DB or {}) do Add(name) end
+  for _, dungeon in pairs(AtlasData() or {}) do Add(AtlasName(dungeon)) end
+  table.sort(names)
+  return names
+end
+
+-- The dungeon a typed name means ("deadmines", "scarlet library"...): the
+-- dungeon whose name has every word typed. Nil if none.
+local function FindDungeon(typed)
+  if not typed or typed == "" then return nil end
   local found
-  for name in pairs(db) do
+  for _, name in ipairs(DungeonNames()) do
     local lower, all = name:lower(), true
     for word in typed:lower():gmatch("%S+") do
       if not lower:find(word, 1, true) then all = false break end
@@ -398,17 +651,6 @@ local function FindDungeon(typed)
     if all and (not found or #name < #found) then found = name end
   end
   return found
-end
-
--- The names to try, for /qm testcard with a name it doesn't know
-local function DungeonNames()
-  local journal = _G.ForeverDungeonJournal_NS
-  local names = {}
-  for name in pairs(type(journal) == "table" and type(journal.DB) == "table" and journal.DB or {}) do
-    table.insert(names, name)
-  end
-  table.sort(names)
-  return names
 end
 
 function Core.DungeonDemo(typed)
@@ -422,11 +664,14 @@ function Core.DungeonDemo(typed)
     end
   end
   local dungeon = JournalDungeon(name)
+  local atlas = not dungeon and AtlasDungeon(name)
+  local range = atlas and type(atlas.LevelRange) == "table" and atlas.LevelRange
   demo = {
     name = name, start = time() - 754, xp = 2380, money = 0, copper = 4210, deaths = 0, deathsBy = {},
-    killed = {}, killedAt = {}, bosses = JournalAddon(name) or DEMO_BOSSES,
+    killed = {}, killedAt = {}, bosses = JournalAddon(name) or AtlasBosses(name) or DEMO_BOSSES,
     icon = dungeon and dungeon.icon or "Interface\\Icons\\Spell_Frost_SummonWaterElemental",
-    levels = dungeon and dungeon.level or "35-40", id = "demo:"..name,
+    levels = dungeon and dungeon.level or (range and range[1] and (range[1].."-"..range[#range])) or "35-40",
+    id = "demo:"..name,
   }
   local current = demo
   if clock then clock:Show() end
@@ -532,8 +777,11 @@ clock:SetScript("OnUpdate", function (self, elapsed)
     return
   end
   if not inside then return end
+  if Run() then
+    Run().seen = time()
+    LookForNewCopy(Run())
+  end
   local run = Run()
-  if run then run.seen = time() end
   local clock = Core.DungeonClock()
   if clock then Core.SetDungeonClock(clock) end
   if run and run.bosses then
@@ -553,6 +801,12 @@ Core:OnChange(function (key)
       pcall(events.RegisterEvent, events, event)
     end
     UpdateInside()
+    local Info = _G.C_ChatInfo
+    if Info and Info.RegisterAddonMessagePrefix then
+      pcall(Info.RegisterAddonMessagePrefix, FACES_PREFIX)
+      sharing:RegisterEvent("CHAT_MSG_ADDON")
+      sharing:RegisterEvent("GROUP_ROSTER_UPDATE")
+    end
   elseif key == "dungeonInfo" then
     Core.Refresh()
   end

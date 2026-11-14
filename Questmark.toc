@@ -4,10 +4,10 @@
 ## Notes: An objective tracker, a dungeon card, and a quest book in place of the quest log. For WoW: Forever.
 ## Author: Rethz
 ## IconTexture: Interface\AddOns\Questmark\Assets\logo
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: QuestmarkDB
 ## Dependencies: Blizzard_ObjectiveTracker
-## OptionalDeps: SharedMedia, SharedMediaAdditionalFonts, ForeverDungeonJournal
+## OptionalDeps: SharedMedia, SharedMediaAdditionalFonts, ForeverDungeonJournal, AtlasLootClassic, Questie, Baganator
 
 # Libs
 libs\LibStub\LibStub.lua
@@ -26,6 +26,7 @@ Look\Icons.lua
 Tracker\Frame.lua
 Look\Background.lua
 Tracker\Data.lua
+Tracker\DungeonFaces.lua
 Tracker\Dungeon.lua
 Tracker\DungeonTheme.lua
 Tracker\DungeonScene.lua
@@ -35,9 +36,13 @@ Tracker\Items.lua
 Tracker\QuestMap.lua
 Tracker\QuestText.lua
 Tracker\Tracker.lua
+Tracker\Waypoint.lua
+Tracker\Navigation.lua
 Behavior\Fade.lua
 Behavior\Sounds.lua
 Behavior\ZoneFilter.lua
+Behavior\QuestItems.lua
+Behavior\AutoQuests.lua
 Animations\Animations.lua
 Animations\Dust.lua
 Behavior\VersionCheck.lua

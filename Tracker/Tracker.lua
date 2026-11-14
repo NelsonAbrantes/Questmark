@@ -15,7 +15,7 @@ local hooksecurefunc = hooksecurefunc
 -- luacheck: pop
 
 local FLAT = "Interface\\Buttons\\WHITE8x8"
-local ICON_SIZE = 16     -- quest icons
+local ICON_SIZE = 18     -- quest icons
 local TOGGLE_SIZE = 14   -- minimize buttons of titles
 local INDENT = 20        -- names and objectives start here (the icons' column)
 local DASH_WIDTH = 10    -- the "-" before an objective
@@ -346,6 +346,8 @@ local blocks = Pool(function ()
   block.poi = CreateFrame("Button", nil, block)
   block.poi:SetSize(ICON_SIZE + 2, ICON_SIZE + 2)
   block.poi:RegisterForClicks("LeftButtonUp")
+  -- (easier to click: a bit more around it counts)
+  block.poi:SetHitRectInsets(-4, -2, -4, -4)
   Core.CreateIcon(block.poi, ICON_SIZE)
   block.poi:SetScript("OnClick", function () ClickPoi(block) end)
   block.poi:SetScript("OnEnter", function (self) self.gftHover = true; Core.ColorIcon(self, block.entry.super) end)
@@ -547,7 +549,7 @@ local function PlaceBlock(entry, y, changes)
   local width = content:GetWidth()
   Glide(block, y)
   block.title:SetWidth(width - INDENT)
-  block.title:SetText(entry.title)
+  block.title:SetText(entry.kind == "quest" and Core.QuestName(entry.title, entry.level) or entry.title)
   UpdateTitleColor(block)
   local titleHeight = math.max(Profile().headerFontSize, block.title:GetStringHeight() or 0)
 
@@ -890,13 +892,33 @@ local function Link(entry)
   return insert and insert(link) or false
 end
 
+-- With Questie: its focus too (its map icons of the other quests fade), as
+-- its own focus button does. False if Questie can't focus that quest.
+local function QuestieFocus(questID)
+  local Loader = _G.QuestieLoader
+  if not (Loader and Loader.ImportModule) then return false end
+  local ok, Utils = pcall(Loader.ImportModule, Loader, "TrackerUtils")
+  local found, Quest = pcall(Loader.ImportModule, Loader, "QuestieQuest")
+  if not (ok and Utils and Utils.FocusQuest and found and Quest and Quest.ToggleQuestNotes) then return false end
+  if questID then
+    local done, focused = pcall(Utils.FocusQuest, Utils, questID)
+    if done and focused then pcall(Quest.ToggleQuestNotes, false) return true end
+    return false
+  end
+  pcall(Utils.UnFocus, Utils)
+  pcall(Quest.ToggleQuestNotes, true)
+  return true
+end
+
 local function Follow(questID)
   local SuperTrack = _G.C_SuperTrack
   if not (SuperTrack and SuperTrack.SetSuperTrackedQuestID) then return end
   if SuperTrack.GetSuperTrackedQuestID() == questID then
+    QuestieFocus(nil)
     SuperTrack.SetSuperTrackedQuestID(0)
   else
-    SuperTrack.SetSuperTrackedQuestID(questID)
+    -- (Questie's focus sets the game's too; if it can't, the game's alone)
+    if not QuestieFocus(questID) then SuperTrack.SetSuperTrackedQuestID(questID) end
     if _G.SOUNDKIT and _G.SOUNDKIT.UI_MAP_WAYPOINT_SUPER_TRACK_ON then
       _G.PlaySound(_G.SOUNDKIT.UI_MAP_WAYPOINT_SUPER_TRACK_ON)
     end
@@ -924,6 +946,48 @@ end
 
 -- (for the quest list's menu too, see QuestText.lua)
 Core.FollowQuest, Core.AbandonQuest, Core.ShareQuest = Follow, Abandon, Share
+
+----
+-- Questie's icons on the game's map: a click on one of a quest you have
+-- follows that quest (Questie does nothing with that click, on the map it
+-- shows). Its icons are made as needed: the new ones are looked for while
+-- the map is open.
+
+local hookedIcons = 0
+
+local function QuestieIconClicked(icon, button)
+  local data = icon.data
+  local questID = data and data.Id
+  if button ~= "LeftButton" or icon.miniMapIcon or _G.IsModifierKeyDown() or type(questID) ~= "number" then return end
+  if not C_QuestLog.GetLogIndexForQuestID(questID) then return end
+  local map = _G.WorldMapFrame
+  if icon.UiMapID and map and map.GetMapID and icon.UiMapID ~= map:GetMapID() then return end
+  -- (already followed: it stays)
+  if C_SuperTrack.GetSuperTrackedQuestID() ~= questID then Follow(questID) end
+end
+
+local function HookQuestieIcons()
+  while _G["QuestieFrame"..(hookedIcons + 1)] do
+    hookedIcons = hookedIcons + 1
+    _G["QuestieFrame"..hookedIcons]:HookScript("OnClick", QuestieIconClicked)
+  end
+end
+
+local iconWatch
+local function WatchQuestieIcons()
+  if not _G.QuestieLoader or iconWatch then return end
+  HookQuestieIcons()
+  iconWatch = C_Timer.NewTicker(1, function ()
+    if _G.WorldMapFrame:IsShown() then
+      HookQuestieIcons()
+    else
+      iconWatch:Cancel()
+      iconWatch = nil
+    end
+  end)
+end
+
+if _G.WorldMapFrame then _G.WorldMapFrame:HookScript("OnShow", WatchQuestieIcons) end
 
 local function Menu(block)
   local MenuUtil = _G.MenuUtil
@@ -969,12 +1033,7 @@ function ClickEntry(block, button)
     Untrack(entry)
     return
   end
-  -- A quest: followed (the map, opened by an addon, made the game block
-  -- things in it later in a fight). "Read quest" is in its menu.
-  if entry.kind == "quest" and not entry.autoComplete then
-    Follow(entry.id)
-    return
-  end
+  -- A quest: opened in the book (its icon follows it)
   Open(entry)
 end
 
@@ -1170,6 +1229,7 @@ local LAYOUT_KEYS = {
   zoneOnly = true, completedObjectives = true, glassBars = true,
   strikeCompleted = true, titleColor = true, questNameColor = true, iconColor = true,
   iconOutline = true, hideMainHeader = true, hideSectionHeaders = true, sectionAnimation = true,
+  questLevels = true,
 }
 
 Core:OnChange(function (key)

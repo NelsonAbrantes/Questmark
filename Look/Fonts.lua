@@ -24,6 +24,12 @@ Core.fonts = fonts
 
 local FALLBACK = "Fonts\\FRIZQT__.TTF"
 
+-- A font that comes with Questmark, so everyone has it: Barlow Condensed
+-- SemiBold (SIL Open Font License, see Assets/Fonts/OFL.txt). It shows in
+-- every font list (it's registered with LibSharedMedia).
+Core.FONT_NAME = "Barlow Condensed SemiBold"
+Core.LSM:Register(Core.LSM.MediaType.FONT, Core.FONT_NAME, Core.ASSETS.."Fonts\\BarlowCondensed-SemiBold.ttf")
+
 -- The zone names: small, to sit between the quests
 function Core.ZoneFontSize()
   return math.max(8, Core.db.profile.lineFontSize - 3)

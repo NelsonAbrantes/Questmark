@@ -49,7 +49,17 @@ local GREEN = { 0.10, 0.36, 0.08 } -- done
 local FADED = { 0.42, 0.32, 0.20 }
 local FADED_HEX = "|cff6b5233"
 local COUNT = { 0.36, 0.20, 0.08 } -- a zone's count of quests: a warm dark ink
-local ZONE = { 1.0, 0.82, 0.0 } -- the zones in the list: the quests' own yellow (with a dark shadow)
+local CREAM = { 1.0, 0.93, 0.78 } -- the cream of the game's zone names
+-- A color of the list's options (cream, or one of Core.COLORS); nil if unknown
+local YELLOW = { 1.0, 0.82, 0.0 } -- the game's yellow of quest titles
+local function ListColor(key)
+  if key == "cream" then return CREAM end
+  if key == "yellow" then return YELLOW end
+  local r, g, b = Core:Color(key)
+  return r and { r, g, b } or nil
+end
+-- The zones in the list (Options: Zones color), with a thin dark edge
+local function ZONE() return ListColor(Core.db.profile.bookZoneColor) or CREAM end
 
 ----
 -- Quest book
@@ -101,6 +111,15 @@ Font("Small", "Fonts\\FRIZQT__.TTF", 11)
 Font("Badge", "Fonts\\FRIZQT__.TTF", 10)
 Font("Stamp", "Fonts\\MORPHEUS.TTF", 21)
 Font("Button", "Fonts\\MORPHEUS.TTF", 13)
+-- (the quest list: the book's own letters, or a font chosen in the options)
+Font("List", "Fonts\\FRIZQT__.TTF", 12)
+Font("ListZone", "Fonts\\MORPHEUS.TTF", 15)
+-- (the zones' counts and "No quests taken.", in dark ink: no dark edge)
+Font("ListPlain", "Fonts\\FRIZQT__.TTF", 12)
+-- (the rewards' names, in their quality's color: a thin dark edge to read on the paper)
+Font("Reward", "Fonts\\FRIZQT__.TTF", 11)
+fonts.Reward:SetShadowColor(0, 0, 0, 0.9)
+fonts.Reward:SetShadowOffset(1, -1)
 Core.bookFonts = fonts
 
 -- The sound of the book shutting: the game's spellbook closing (a book's thump)
@@ -217,6 +236,9 @@ end
 -- green, grey), as in its quest log and the tracker (a dark shadow under the
 -- list's quests makes them read on the paper)
 local function DifficultyInk(questID, level)
+  -- (Options: Quests color, unless by difficulty)
+  local chosen = ListColor(Core.db.profile.bookQuestColor)
+  if chosen then return chosen end
   if not Core.DifficultyColor then return INK end
   local r, g, b = Core.DifficultyColor(questID, level)
   if not (r and g and b) then return INK end
@@ -302,7 +324,7 @@ local function QualityColor(quality)
   if not (Item and Item.GetItemQualityColor) then return INK[1], INK[2], INK[3] end
   local r, g, b = Item.GetItemQualityColor(quality)
   if not (r and g and b) then return INK[1], INK[2], INK[3] end
-  return r * 0.55, g * 0.55, b * 0.55
+  return r, g, b
 end
 
 local function RewardButton(i)
@@ -317,7 +339,7 @@ local function RewardButton(i)
   button.amount = button:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
   button.amount:SetPoint("BOTTOMRIGHT", button.icon, "BOTTOMRIGHT", 1, 0)
   button.name = button:CreateFontString(nil, "ARTWORK")
-  button.name:SetFontObject(fonts.Small)
+  button.name:SetFontObject(fonts.Reward)
   button.name:SetPoint("LEFT", button.icon, "RIGHT", 6, 0)
   button.name:SetPoint("RIGHT")
   button.name:SetMaxLines(2)
@@ -666,10 +688,10 @@ local function Row(i)
   row.toggle = Core.Smooth(row:CreateTexture(nil, "ARTWORK"))
   row.toggle:SetSize(11, 11)
   row.toggle:SetPoint("LEFT", 0, 0)
-  row.toggle:SetVertexColor(ZONE[1], ZONE[2], ZONE[3])
+  row.toggle:SetVertexColor(unpack(ZONE()))
   -- A zone's count of quests, between brackets after its name, in dark ink
   row.count = row:CreateFontString(nil, "OVERLAY")
-  row.count:SetFontObject(fonts.Text)
+  row.count:SetFontObject(fonts.ListPlain)
   row.count:SetTextColor(COUNT[1], COUNT[2], COUNT[3])
   row.count:Hide()
   -- The quest open on the right page: a soft warm glow behind its name
@@ -697,7 +719,7 @@ local function Row(i)
     self.underline:Hide()
     -- (the quest open stays red)
     self.text:SetTextColor(unpack(self.open and RED or self.color))
-    self.toggle:SetVertexColor(ZONE[1], ZONE[2], ZONE[3])
+    self.toggle:SetVertexColor(unpack(ZONE()))
   end)
   row:SetScript("OnClick", function (self, button)
     if self.zone then
@@ -706,6 +728,12 @@ local function Row(i)
       collapsed[self.zone] = not collapsed[self.zone] or nil
       FillList()
     elseif self.questID then
+      -- Shift-click: its link in the chat box being written, as in the game
+      if button == "LeftButton" and _G.IsModifiedClick("CHATLINK") then
+        local link = _G.GetQuestLink and _G.GetQuestLink(self.questID)
+        local insert = (_G.ChatFrameUtil and _G.ChatFrameUtil.InsertLink) or _G.ChatEdit_InsertLink
+        if link and insert and insert(link) then return end
+      end
       if button == "RightButton" then
         QuestMenu(self, self.questID)
       else
@@ -1629,15 +1657,15 @@ function FillList()
       if item.header and i > 1 then y = y + GAP - ROW_GAP end
       row.questID = item.questID
       row.zone = item.header and item.title or nil
-      row.text:SetFontObject(item.header and fonts.Zone or fonts.Text)
-      -- (the zones' gold and the quests' colors with a soft dark brown
-      -- shadow, to stand out of the paper)
-      row.text:SetShadowColor(0.20, 0.09, 0.0, item.header and 0.95 or 0.8)
+      row.text:SetFontObject(item.header and fonts.ListZone or fonts.List)
+      -- (the game's colors, with a thin black edge to read on the paper)
+      row.text:SetShadowColor(0, 0, 0, 0.9)
       row.text:SetShadowOffset(1, -1)
       row.text:ClearAllPoints()
       if item.header then
         local closed = collapsed[item.title]
-        row.color = ZONE
+        row.color = ZONE()
+        row.toggle:SetVertexColor(unpack(row.color))
         row.text:SetText(item.title)
         -- (and how many quests it has, between brackets after it)
         row.count:SetText("("..item.quests..")")
@@ -1653,7 +1681,7 @@ function FillList()
         row.count:Hide()
         -- (its difficulty's color; done: the game's "?" to give it back after it)
         row.color = DifficultyInk(item.questID, item.level)
-        local text = item.title
+        local text = Core.QuestName(item.title, item.level)
         if item.done then
           -- (the game sizes atlas icons with the letters: the same number fits
           -- any text size)
@@ -1697,7 +1725,7 @@ function FillList()
     row.toggle:Hide()
     row.count:Hide()
     row.selected:Hide()
-    row.text:SetFontObject(fonts.Text)
+    row.text:SetFontObject(fonts.ListPlain)
     row.text:SetShadowOffset(0, 0)
     row.text:SetText("No quests taken.")
     row.text:SetTextColor(unpack(FADED))
@@ -2162,7 +2190,37 @@ keyButton:SetScript("OnClick", function () Core.ShowQuestList() end)
 
 local boundKeys -- the keys bound now (nil: none yet)
 
+-- The quest log's button in the game's menu bar opens the book too: a button
+-- of our own over it takes the clicks (the game's own is left untouched, so
+-- it can't get it blocked in a fight), and lights it up under the mouse
+local overButton
+local function CoverMenuButton()
+  local menuButton = _G.QuestLogMicroButton
+  if not menuButton then return end
+  if not overButton then
+    overButton = CreateFrame("Button", "QuestmarkQuestLogButton", menuButton)
+    overButton:SetAllPoints()
+    overButton:SetFrameLevel(menuButton:GetFrameLevel() + 5)
+    overButton:RegisterForClicks("LeftButtonUp")
+    overButton:SetScript("OnClick", function () Core.ShowQuestList() end)
+    overButton:SetScript("OnEnter", function (self)
+      if menuButton.LockHighlight then menuButton:LockHighlight() end
+      local tooltip = _G.GameTooltip
+      tooltip:SetOwner(self, "ANCHOR_RIGHT")
+      local key = _G.GetBindingKey("TOGGLEQUESTLOG")
+      tooltip:SetText(key and ("Quest Book |cffffd100(%s)|r"):format(key) or "Quest Book")
+      tooltip:Show()
+    end)
+    overButton:SetScript("OnLeave", function ()
+      if menuButton.UnlockHighlight then menuButton:UnlockHighlight() end
+      _G.GameTooltip:Hide()
+    end)
+  end
+  overButton:SetShown(Core.BookOn() and Core.db.profile.bookKey and true or false)
+end
+
 local function BindKey()
+  CoverMenuButton()
   if InCombatLockdown() then
     keyButton:RegisterEvent("PLAYER_REGEN_ENABLED")
     return
@@ -2206,12 +2264,25 @@ local function UpdateFonts()
   end
   Size("Text", text)
   Size("Small", text - 1)
+  Size("Reward", text - 1)
   Size("Badge", text - 2)
   Size("Title", title)
   Size("Heading", title * 0.71)
   Size("Zone", title * 0.62)
   Size("Stamp", title * 0.88)
   Size("Button", title * 0.54)
+  -- The list: its own font and size (the zones a little bigger)
+  local list = profile.bookListSize or text
+  local chosen = profile.bookListFont ~= "" and profile.bookListFont
+    and Core.LSM:Fetch(Core.LSM.MediaType.FONT, profile.bookListFont, true)
+  local function ListFont(key, own, size, flags)
+    size = math.floor(size + 0.5)
+    fonts[key]:SetFont(chosen or own, size, flags or "")
+    if not fonts[key]:GetFont() then fonts[key]:SetFont(own, size, flags or "") end
+  end
+  ListFont("List", "Fonts\\FRIZQT__.TTF", list)
+  ListFont("ListZone", "Fonts\\MORPHEUS.TTF", list * 1.65)
+  ListFont("ListPlain", "Fonts\\FRIZQT__.TTF", list, "")
 end
 
 local function Refill()
@@ -2221,7 +2292,9 @@ local function Refill()
 end
 
 Core:OnChange(function (key)
-  if key == "init" or key == "profile" or key == "bookTextSize" or key == "bookTitleSize" then
+  if key == "init" or key == "profile" or key == "bookTextSize" or key == "bookTitleSize"
+    or key == "bookListFont" or key == "bookListSize" or key == "questLevels"
+    or key == "bookZoneColor" or key == "bookQuestColor" then
     UpdateFonts()
     Refill()
   end

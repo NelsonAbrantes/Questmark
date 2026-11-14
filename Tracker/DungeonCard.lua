@@ -37,8 +37,8 @@ local GREY = { 0.4, 0.4, 0.4 }
 --   time it died at shows under it. Rare bosses come after the others,
 --   under their own small title, with a silver ring.
 -- - the experience, gold and deaths of the run (DungeonStats.lua)
--- The portraits come from the ForeverDungeonJournal addon when it's
--- installed; without it, a skull stands for each boss.
+-- The portraits come from the ForeverDungeonJournal addon or AtlasLoot when
+-- one is installed; without them, a skull stands for each boss.
 
 local frame = Core.content
 local fonts = Core.fonts
@@ -149,9 +149,14 @@ local function Cell(i)
   cell:SetSize(SIZE, SIZE)
   cell:EnableMouse(true)
   -- A right click opens the card's menu (passing the click on to the card is
-  -- something the game blocks in combat)
+  -- something the game blocks in combat); a left click, the boss's loot in
+  -- the journal addon
   cell:SetScript("OnMouseUp", function (_, button)
-    if button == "RightButton" then Core.DungeonMenu() end
+    if button == "RightButton" then
+      Core.DungeonMenu()
+    elseif button == "LeftButton" and cell.boss and card.entry then
+      Core.OpenBossLoot(card.entry, cell.boss)
+    end
   end)
 
   cell.back = cell:CreateTexture(nil, "BACKGROUND")
@@ -255,8 +260,7 @@ local function Cell(i)
     if boss.rare then GameTooltip:AddLine("Rare", SILVER[1], SILVER[2], SILVER[3]) end
     if boss.killed then
       GameTooltip:AddLine(boss.killedAt and ("Killed at "..Clock(boss.killedAt)) or "Killed", 0.7, 0.7, 0.7)
-    end
-    GameTooltip:Show()
+    end    GameTooltip:Show()
   end)
   cell:SetScript("OnLeave", function () GameTooltip:Hide() end)
   card.cells[i] = cell

@@ -52,18 +52,18 @@ local function Slider(category, key, name, minValue, maxValue, step, tooltip)
   options:SetLabelFormatter(_G.MinimalSliderWithSteppersMixin.Label.Right, function (value)
     return decimals and RoundTo2(value) or value
   end)
-  Settings.CreateSlider(category, setting, options, tooltip)
+  return Settings.CreateSlider(category, setting, options, tooltip)
 end
 
 local function Checkbox(category, key, name, tooltip)
   local Settings = _G.Settings
-  Settings.CreateCheckbox(category, ProfileSetting(category, key, Settings.VarType.Boolean, name), tooltip)
+  return Settings.CreateCheckbox(category, ProfileSetting(category, key, Settings.VarType.Boolean, name), tooltip)
 end
 
 local function Dropdown(category, key, name, values, tooltip)
   local Settings = _G.Settings
   local setting = ProfileSetting(category, key, Settings.VarType.String, name)
-  Settings.CreateDropdown(category, setting, function ()
+  return Settings.CreateDropdown(category, setting, function ()
     local container = Settings.CreateControlTextContainer()
     for _, entry in ipairs(values) do
       container:Add(entry[1], entry[2])
@@ -72,8 +72,16 @@ local function Dropdown(category, key, name, values, tooltip)
   end, tooltip)
 end
 
--- Font list with scrolling: there can be many fonts, more than fit on screen
-local function FontDropdown(layout)
+-- Font list with scrolling: there can be many fonts, more than fit on screen.
+-- key: the setting (font by default); first: an entry before the fonts,
+-- { value, label } (e.g. the quest book's own letters)
+local function FontDropdown(layout, key, label, tooltip, first)
+  key, label = key or "font", label or "Font"
+  tooltip = tooltip or "Font of the tracker's text"
+  local function Shown(value)
+    if first and value == first[1] then return first[2] end
+    return value
+  end
   local Initializer = CreateFromMixins(
     _G.ScrollBoxFactoryInitializerMixin,
     _G.SettingsElementHierarchyMixin,
@@ -82,8 +90,8 @@ local function FontDropdown(layout)
 
   function Initializer:Init()
     _G.ScrollBoxFactoryInitializerMixin.Init(self, "SettingsListElementTemplate")
-    self.data = { name = "Font", tooltip = "Font of the tracker's text" }
-    self:AddSearchTags("Font")
+    self.data = { name = label, tooltip = tooltip }
+    self:AddSearchTags(label)
   end
 
   function Initializer:GetExtent()
@@ -94,7 +102,7 @@ local function FontDropdown(layout)
     frame:SetSize(280, 26)
     frame.data = self.data
     frame.Text:SetFontObject("GameFontNormal")
-    frame.Text:SetText("Font")
+    frame.Text:SetText(label)
     frame.Text:SetPoint("LEFT", 37, 0)
     frame.Text:SetPoint("RIGHT", frame, "CENTER", -85, 0)
 
@@ -112,23 +120,24 @@ local function FontDropdown(layout)
       rootDescription:SetScrollMode(300)
       -- A copy: the font list is shared with other addons
       local fonts = {}
+      if first then table.insert(fonts, first[1]) end
       for _, font in ipairs(Core.LSM:List("font")) do
         table.insert(fonts, font)
       end
       for _, font in ipairs(fonts) do
         rootDescription:CreateRadio(
-          font,
-          function (value) return Profile().font == value end,
+          Shown(font),
+          function (value) return Profile()[key] == value end,
           function (value)
-            Profile().font = value
-            Core:Changed("font")
-            dropdown:OverrideText(value)
+            Profile()[key] = value
+            Core:Changed(key)
+            dropdown:OverrideText(Shown(value))
           end,
           font
         )
       end
     end)
-    dropdown:OverrideText(Profile().font)
+    dropdown:OverrideText(Shown(Profile()[key]))
   end
 
   function Initializer:Resetter(frame)
@@ -234,21 +243,55 @@ local function Build()
   }, "What the tracker does in dungeons and raids. Dungeon quests only: while you're inside, only the quests of that dungeon or raid show (the others stay tracked and come back when you leave)")
   Checkbox(category, "dungeonAlwaysShow", "Always visible in dungeons", "In dungeons and raids the tracker doesn't fade out (unless \"In dungeons and raids\" is set to hide it)")
   Checkbox(category, "dungeonInfo", "Dungeon info", "In dungeons and raids, a section at the top of the tracker with the run: how long it's taking, the bosses (killed ones checked), the experience and gold you've made and how many times you died. Right click it to start the run again")
+  Dropdown(category, "bossLoot", "Boss loot", {
+    { "journal", "ForeverDungeonJournal" },
+    { "atlasloot", "AtlasLoot" },
+  }, "The addon a click on a boss in the dungeon card opens on that boss's loot (if it isn't installed, the other one)")
+  Checkbox(category, "questItemMarks", "Quest items no longer needed", "Quest items left in your bags after their quest say so in their tooltip. With Baganator, a red cross can show on them too: turn on \"Questmark: quest item no longer needed\" in its Corner icons")
   Checkbox(category, "completeSound", "Sound on complete", "A discreet sound when a quest objective is done, and another when a quest is ready to turn in")
   Checkbox(category, "orcVoice", "Orc voice on quest complete", "When a quest is ready to turn in, an orc peon says \"Work complete!\" instead of the usual sound. Needs Sound on complete")
+  Checkbox(category, "questLevels", "Quest levels", "Each quest's level before its name, in the tracker and the quest book's list: [12] The Defias Brotherhood")
+  Checkbox(category, "autoQuests", "Accept and turn in quests", "Talking to someone accepts the quests they offer and turns in the ones ready. Not when you must choose a reward or a quest asks for money. Hold Shift to do it yourself")
 
   -- The quest book's options: a page of their own, under the tracker's
   -- (Options > AddOns > Questmark > Quest Book)
   local book, bookLayout = Settings.RegisterVerticalLayoutSubcategory(category, "Quest Book")
   Header(bookLayout, "Quest book")
-  Checkbox(book, "bookKey", "Quest book on the quest log key", "The key that opens the quest log (L) opens the tracker's quest book instead. Changes wait for the end of a fight")
+  Checkbox(book, "bookKey", "Quest book on the quest log key", "The quest log's key (L) and its button in the game's menu bar open the quest book instead. Changes to the key wait for the end of a fight")
   Slider(book, "bookSize", "Book size", 70, 220, 5, "Size of the quest book, in % of its own size. Dragging its bottom right corner changes it too")
-  Slider(book, "bookTextSize", "Text size", 9, 18, 1, "Size of the writing in the quest book: the quests in the list, the objectives, the description and the rewards")
-  Slider(book, "bookTitleSize", "Titles size", 16, 34, 1, "Size of the quest book's titles. The headings and the zones in the list go with it")
+  Slider(book, "bookTextSize", "Text size", 9, 18, 1, "Size of the writing on the quest's page: the objectives, the description and the rewards")
+  Slider(book, "bookTitleSize", "Titles size", 16, 34, 1, "Size of the quest book's titles. The headings go with it")
+  FontDropdown(bookLayout, "bookListFont", "List font", "Font of the quest list: the quests and the zones", { "", "Default" })
+  Slider(book, "bookListSize", "List size", 8, 18, 1, "Size of the quest list: the quests (the zones go with it)")
+  Dropdown(book, "bookZoneColor", "Zones color", ColorChoices({ { "cream", "Cream" }, { "yellow", "Yellow" } }), "Color of the zones in the quest list")
+  Dropdown(book, "bookQuestColor", "Quests color", ColorChoices({ { "auto", "By difficulty" }, { "cream", "Cream" }, { "yellow", "Yellow" } }), "Color of the quests in the quest list. By difficulty: like the game")
   Slider(book, "bookMapSize", "Map size", 40, 100, 2, "Size of the map shown over the right page (Show map), in % of the page")
   Slider(book, "bookMapZoom", "Map zoom", 1, 5, 0.5, "How close the map opens on the quest's place. 1: the whole zone")
   Checkbox(book, "bookAnimations", "Book animations", "The quest book opens and shuts as a book, its pages turn, its quests come in one after the other and a quest just done glows")
   Checkbox(book, "bookSounds", "Book sounds", "The sounds of the quest book opening, shutting and turning its pages")
+
+  -- Following a quest: the GPS and the game's navigation, a page of their
+  -- own (Options > AddOns > Questmark > Quest GPS)
+  local gps, gpsLayout = Settings.RegisterVerticalLayoutSubcategory(category, "Quest GPS")
+  Header(gpsLayout, "Navigation")
+  Checkbox(gps, "navMarker", "Navigation marker", "With a quest followed, the game's mark on the screen over the place it leads to, with how far it is (the game's in-game navigation, turned on by this). Shows even with Questie")
+  Header(gpsLayout, "Quest GPS")
+  local gpsOn = Checkbox(gps, "gpsArrow", "Quest GPS", "With a quest followed (click its icon in the tracker), an arrow on the screen points the way to it and says how far it is. Drag it to move it; right click it to stop following the quest")
+  -- (the arrow's own options: grayed out while it's off)
+  local function GpsOn() return Profile().gpsArrow end
+  for _, option in ipairs({
+    Dropdown(gps, "gpsStyle", "Arrow", {
+      { "arrow", "Arrow" }, { "chevron", "Chevron" }, { "double", "Double chevron" },
+      { "triangle", "Triangle" }, { "needle", "Compass needle" }, { "dart", "Dart" },
+    }, "The GPS arrow's shape"),
+    Slider(gps, "gpsSize", "Arrow size", 24, 96, 2, "Size of the GPS arrow"),
+    Dropdown(gps, "gpsColor", "Arrow color", ColorChoices({ { "title", "Like the titles" } }), "Color of the GPS arrow"),
+    Slider(gps, "gpsTextSize", "Text size", 8, 20, 1, "Size of the distance under the arrow (the quest's name a little smaller)"),
+    Dropdown(gps, "gpsUnits", "Distance in", { { "yards", "Yards" }, { "meters", "Meters" } }, "The distance under the arrow, in yards (like the game) or meters"),
+    Checkbox(gps, "gpsQuestName", "Quest name", "The quest's name under the distance"),
+  }) do
+    if option and gpsOn and option.SetParentInitializer then option:SetParentInitializer(gpsOn, GpsOn) end
+  end
 
   Settings.RegisterAddOnCategory(category)
   return category

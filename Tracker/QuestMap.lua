@@ -85,6 +85,42 @@ local function Rect(mapID, landID)
   return { id = landID, minX = minX, maxX = maxX, minY = minY, maxY = maxY }
 end
 
+-- The zones and dungeons by their names (made once)
+local mapsByName
+local function MapByName(name)
+  if not mapsByName then
+    mapsByName = {}
+    local ZONE, DUNGEON = MapType.Zone or 3, MapType.Dungeon or 4
+    local all = {}
+    for _, top in ipairs({ 947, C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() }) do
+      for _, info in ipairs(C_Map.GetMapChildrenInfo and C_Map.GetMapChildrenInfo(top, nil, true) or {}) do
+        all[#all + 1] = info
+      end
+    end
+    -- (a zone before a dungeon of the same name)
+    for _, kind in ipairs({ ZONE, DUNGEON }) do
+      for _, info in ipairs(all) do
+        if info.mapType == kind and info.name and not mapsByName[info.name] then
+          mapsByName[info.name] = info.mapID
+        end
+      end
+    end
+  end
+  return name and mapsByName[name]
+end
+
+-- The zone the quest log puts the quest under
+local function LogZone(questID)
+  local index = C_QuestLog.GetLogIndexForQuestID(questID)
+  for i = index or 0, 1, -1 do
+    local info = C_QuestLog.GetInfo(i)
+    if info and info.isHeader then
+      return Core.Readable(info.title) and MapByName(info.title) or nil
+    end
+  end
+  return nil
+end
+
 ---
 -- Where the quest goes: mapID, x, y (x and y nil if the zone has no place)
 local function QuestPlace(questID)
@@ -94,7 +130,9 @@ local function QuestPlace(questID)
     if mapID and x and y then return mapID, x, y end
   end
   local mapID = _G.GetQuestUiMapID and _G.GetQuestUiMapID(questID)
-  if not mapID or mapID == 0 then return nil end
+  -- (the game only knows where quests are once its map has been open: until
+  -- then, the zone the quest log puts it under, without a place)
+  if not mapID or mapID == 0 then return LogZone(questID) end
   for _, info in ipairs(C_QuestLog.GetQuestsOnMap and C_QuestLog.GetQuestsOnMap(mapID) or {}) do
     if info.questID == questID then return mapID, info.x, info.y end
   end
@@ -623,3 +661,6 @@ end
 function Core.HideQuestMap()
   if map then map:Hide() end
 end
+
+-- (the quest GPS, Waypoint.lua: where a quest leads)
+Core.QuestPlace = QuestPlace
