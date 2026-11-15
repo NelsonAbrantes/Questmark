@@ -5,8 +5,20 @@ local Core = ns.Core
 local CreateFrame = CreateFrame
 -- luacheck: pop
 
-local TEXTURE = Core.ASSETS.."softBackground"
-local SOFT_EDGE = 56 -- how many pixels of the image fade out at each side
+-- The looks (Options: Background style): the soft shadow, or a smear of
+-- dark paint with rough edges (Tools/smudge.py), each with the part of its
+-- picture kept as it is at each side (the rest stretches)
+local STYLES = {
+  soft = { file = Core.ASSETS.."softBackground", edge = 56 },
+  smudge = { file = Core.ASSETS.."smudgeBackground", edge = 128 },
+}
+-- (the paint is gray: tinted, not darkened, by the color chosen)
+local SMUDGE_TINTS = {
+  black = { 1, 1, 1 },
+  brown = { 1, 0.86, 0.7 },
+  blue = { 0.78, 0.86, 1 },
+  grey = { 1.1, 1.1, 1.1 },
+}
 -- Background colors offered in the options (dark, so the text stays readable)
 local BACKGROUND_COLORS = {
   black = { 0, 0, 0 },
@@ -27,11 +39,15 @@ local PRESENCE_FADE = 0.4 -- seconds to fade out when the tracker empties
 local frame = Core.frame
 
 local texture = Core.Smooth(frame:CreateTexture(nil, "BACKGROUND"))
-texture:SetTexture(TEXTURE)
-if texture.SetTextureSliceMargins then
-  texture:SetTextureSliceMargins(SOFT_EDGE, SOFT_EDGE, SOFT_EDGE, SOFT_EDGE)
-  if texture.SetTextureSliceMode and _G.Enum and _G.Enum.UITextureSliceMode then
-    texture:SetTextureSliceMode(_G.Enum.UITextureSliceMode.Stretched)
+
+local function ApplyStyle()
+  local style = STYLES[Core.db.profile.backgroundStyle] or STYLES.soft
+  texture:SetTexture(style.file)
+  if texture.SetTextureSliceMargins then
+    texture:SetTextureSliceMargins(style.edge, style.edge, style.edge, style.edge)
+    if texture.SetTextureSliceMode and _G.Enum and _G.Enum.UITextureSliceMode then
+      texture:SetTextureSliceMode(_G.Enum.UITextureSliceMode.Stretched)
+    end
   end
 end
 
@@ -46,14 +62,21 @@ fader:Hide()
 -- alpha (in this game version a texture's own alpha replaces it instead)
 function background:UpdateColor()
   local profile = Core.db.profile
-  local color = BACKGROUND_COLORS[profile.backgroundColor] or BACKGROUND_COLORS.black
-  texture:SetVertexColor(color[1], color[2], color[3], profile.backgroundOpacity * presence)
+  local smudge = profile.backgroundStyle == "smudge"
+  local colors = smudge and SMUDGE_TINTS or BACKGROUND_COLORS
+  local color = colors[profile.backgroundColor] or colors.black
+  -- (the paint is meant to be seen, the shadow barely: the same slider
+  -- makes the paint much more solid)
+  local opacity = smudge and math.min(1, profile.backgroundOpacity * 3) or profile.backgroundOpacity
+  texture:SetVertexColor(color[1], color[2], color[3], opacity * presence)
 end
 
 ---
 -- Covers the tracker's content (`height` tall from its top); 0: nothing shown
 function background:Update(height)
   local pad = Core.db.profile.backgroundSize
+  -- (the paint's picture has room around it for the strokes running out)
+  if Core.db.profile.backgroundStyle == "smudge" then pad = pad + 64 end
   presenceTarget = height > 0 and 1 or 0
   if height > 0 then
     texture:ClearAllPoints()
@@ -75,7 +98,11 @@ fader:SetScript("OnUpdate", function (_, elapsed)
 end)
 
 Core:OnChange(function (key)
-  if key == "backgroundOpacity" or key == "backgroundColor" or key == "profile" or key == "enable" then
+  if key == "backgroundStyle" or key == "profile" or key == "enable" then
+    ApplyStyle()
+    background:UpdateColor()
+    if key == "backgroundStyle" then Core:Changed("layout") end
+  elseif key == "backgroundOpacity" or key == "backgroundColor" then
     background:UpdateColor()
   elseif key == "backgroundSize" then
     Core:Changed("layout")

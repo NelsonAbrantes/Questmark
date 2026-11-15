@@ -487,10 +487,11 @@ local function BuildButtons()
     function button:Paint()
       if not self:IsEnabled() then
         self.label:SetTextColor(FADED[1], FADED[2], FADED[3], 0.45)
+      -- (fully seen again: the color alone kept the faded one's see-through)
       elseif self:IsMouseOver() then
-        self.label:SetTextColor(0.78, 0.22, 0.06)
+        self.label:SetTextColor(0.78, 0.22, 0.06, 1)
       else
-        self.label:SetTextColor(RED[1], RED[2], RED[3])
+        self.label:SetTextColor(RED[1], RED[2], RED[3], 1)
       end
     end
     button:SetScript("OnEnter", button.Paint)
@@ -753,6 +754,9 @@ end
 local function BuildBook(gameBook)
   book = CreateFrame("Frame", "QuestmarkQuestBook", _G.UIParent)
   book:SetFrameStrata("DIALOG")
+  -- (in front of other windows of its layer when opened or clicked: its
+  -- writing, map and turning sheets showed through them, a Dungeon Journal)
+  book:SetToplevel(true)
   book:SetSize(BOOK_W, BOOK_H)
   -- (the spellbook's pages: as big on the screen as the game's spellbook)
   -- (its size: as chosen with its corner, or about the spellbook's)
@@ -1126,6 +1130,8 @@ local function BuildEvents()
     self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
     self:RegisterEvent("QUEST_REMOVED")
     self:RegisterEvent("QUEST_TURNED_IN")
+    -- (Share: only in a group)
+    self:RegisterEvent("GROUP_ROSTER_UPDATE")
     Sound("IG_QUEST_LOG_OPEN")
   end)
   book:SetScript("OnHide", function (self)
@@ -1133,6 +1139,7 @@ local function BuildEvents()
     self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
     self:UnregisterEvent("QUEST_REMOVED")
     self:UnregisterEvent("QUEST_TURNED_IN")
+    self:UnregisterEvent("GROUP_ROSTER_UPDATE")
     Core.HideQuestMap()
     ResetAnimations()
     rightContent:SetAlpha(1)
@@ -1151,6 +1158,9 @@ local function BuildEvents()
   book:SetScript("OnEvent", function (_, event, questID)
     if event == "QUEST_TURNED_IN" then
       turnedIn = questID
+      return
+    elseif event == "GROUP_ROSTER_UPDATE" then
+      UpdateButtons()
       return
     elseif event == "QUEST_REMOVED" then
       if not questID or questID ~= selected then return end
@@ -1174,6 +1184,8 @@ local function BuildEvents()
         if not dusting then Select(nil) end
       elseif selected and not turning then
         FillText(selected, true)
+        -- (the buttons too: what the game knows of the quest may have come)
+        UpdateButtons()
       end
       FillList()
     end)
@@ -1303,6 +1315,10 @@ end
 local function Writing(alpha)
   writingAlpha = alpha
   for _, region in ipairs(shown) do region:SetAlpha(alpha) end
+  -- (the map's corner tape comes with the writing, unless a sheet turns:
+  -- it stayed hidden when the cover's turn ended before the writing came)
+  local tapes = Core.QuestMapTapes and Core.QuestMapTapes()
+  if tapes and not (flipLayer and flipLayer:IsShown()) then tapes:SetAlpha(alpha) end
 end
 
 local function BuildFlip()
@@ -1863,10 +1879,30 @@ function FillText(questID, keep)
   UpdateButtons()
 end
 
+-- The zone of a quest open in the list (true if it was closed)
+local function OpenZoneOf(questID)
+  local collapsed, zoneTitle = Collapsed(), nil
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    if info and info.isHeader then
+      zoneTitle = info.title
+    elseif info and info.questID == questID then
+      if zoneTitle and collapsed[zoneTitle] then
+        collapsed[zoneTitle] = nil
+        return true
+      end
+      return false
+    end
+  end
+  return false
+end
+
 ---
--- Opens a quest on the right page at once (nil: none)
+-- Opens a quest on the right page at once (nil: none); its zone opens in
+-- the list
 function Select(questID)
   selected = questID
+  if questID and OpenZoneOf(questID) and book:IsShown() then FillList() end
   if not questID then
     Core.HideQuestMap()
     selectedHasMap = false
@@ -1950,6 +1986,7 @@ local function Open()
   if not book:IsShown() or closing then
     if not book:IsShown() then CloseZones() end
     book:Show()
+    book:Raise()
     StartOpen()
     FillList()
   end
@@ -1977,19 +2014,7 @@ function Core.BookOpenQuest(questID)
   -- (from the map: the map stays)
   wantMap = mapView:IsShown()
   -- (its zone opens in the list, if it was closed)
-  local collapsed, zoneTitle = Collapsed(), nil
-  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
-    local info = C_QuestLog.GetInfo(i)
-    if info and info.isHeader then
-      zoneTitle = info.title
-    elseif info and info.questID == questID then
-      if zoneTitle and collapsed[zoneTitle] then
-        collapsed[zoneTitle] = nil
-        FillList()
-      end
-      break
-    end
-  end
+  if OpenZoneOf(questID) then FillList() end
   Turn(questID)
 end
 

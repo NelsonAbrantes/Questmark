@@ -441,6 +441,8 @@ local function LookForNewCopy(run)
           new.start, new.money = entry.start, entry.money
           new.level, new.lastXP, new.lastMax = entry.level, entry.xp, entry.max
           new.copy, new.entry = copy, entry
+          -- (counted from the way in: the quests turned in since then too)
+          new.questXP, new.questMoney = run.questXP, run.questMoney
           new.bosses = BossList(run.name) or run.bosses
           new.icon, new.location, new.levels = run.icon, run.location, run.levels
           Core.Refresh()
@@ -711,11 +713,13 @@ function Core.DungeonSection()
   local entry = {
     kind = "dungeon", key = "d"..tostring(run.id), id = run.id, title = run.name or "",
     elapsed = Elapsed(run), finished = run.finished ~= nil,
-    copper = demo and demo.copper or GetMoney() - run.money, deaths = run.deaths, deathsBy = run.deathsBy, bosses = {}, lines = {},
+    -- (what the fighting and looting brought: not the quests turned in)
+    copper = demo and demo.copper or math.max(0, GetMoney() - run.money - (run.questMoney or 0)),
+    deaths = run.deaths, deathsBy = run.deathsBy, bosses = {}, lines = {},
     icon = run.icon, location = run.location, levels = run.levels,
   }
   if not AtMaxLevel() then
-    entry.xp, entry.xpMax = run.xp, UnitXPMax("player")
+    entry.xp, entry.xpMax = demo and run.xp or math.max(0, run.xp - (run.questXP or 0)), UnitXPMax("player")
   end
   for _, boss in ipairs(run.bosses or {}) do
     table.insert(entry.bosses, {
@@ -756,6 +760,11 @@ events:SetScript("OnEvent", function (_, event, ...)
     local encounterID, name = ...
     if Core.Readable(name) and name then Killed(name, encounterID, nil, true) end
     return
+  elseif event == "QUEST_TURNED_IN" then
+    -- (a quest's experience and gold don't count: only the fighting's)
+    local _, xp, money = ...
+    run.questXP = (run.questXP or 0) + (tonumber(xp) or 0)
+    run.questMoney = (run.questMoney or 0) + (tonumber(money) or 0)
   end
   Core.Refresh()
 end)
@@ -796,7 +805,7 @@ Core:OnChange(function (key)
     if not Core.trackerOn then return end -- (the tracker turned off)
     for _, event in ipairs({
       "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_END", "BOSS_KILL",
-      "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY",
+      "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY", "QUEST_TURNED_IN",
     }) do
       pcall(events.RegisterEvent, events, event)
     end

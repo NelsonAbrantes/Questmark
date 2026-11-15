@@ -85,17 +85,25 @@ local function Rect(mapID, landID)
   return { id = landID, minX = minX, maxX = maxX, minY = minY, maxY = maxY }
 end
 
+-- The game's dungeons and raids, by their instance's number (from the
+-- game's own map list): their names come from the game, in its language
+local DUNGEONS = { 33, 34, 36, 43, 47, 48, 70, 90, 109, 129, 189, 209, 229, 230, 289, 329, 349, 389, 429,
+  2720, 2784, 2806, 2807, 2817, 2875, 2902, 2921, 2970, 2974, 2994, 3001, 3039, 3065, 3109 }
+local RAIDS = { 249, 309, 409, 469, 509, 531, 533, 2789, 2791, 2804, 2832, 2856 }
+
 -- The zones and dungeons by their names (made once)
-local mapsByName
+local mapsByName, dungeonNames
+local ZONE_TYPE = MapType.Zone or 3
 local function MapByName(name)
   if not mapsByName then
-    mapsByName = {}
+    mapsByName, dungeonNames = {}, {}
     local ZONE, DUNGEON = MapType.Zone or 3, MapType.Dungeon or 4
+    -- (every map by its number, once: the dungeons aren't under the
+    -- continents in the maps' tree, so going down from Azeroth misses them)
     local all = {}
-    for _, top in ipairs({ 947, C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() }) do
-      for _, info in ipairs(C_Map.GetMapChildrenInfo and C_Map.GetMapChildrenInfo(top, nil, true) or {}) do
-        all[#all + 1] = info
-      end
+    for mapID = 1, 4000 do
+      local info = C_Map.GetMapInfo(mapID)
+      if info and (info.mapType == ZONE or info.mapType == DUNGEON) then all[#all + 1] = info end
     end
     -- (a zone before a dungeon of the same name)
     for _, kind in ipairs({ ZONE, DUNGEON }) do
@@ -106,7 +114,30 @@ local function MapByName(name)
       end
     end
   end
+  -- (the dungeons and raids: not a zone's name, like Deadwind Pass)
+  if not dungeonNames.done then
+    dungeonNames.done = true
+    local Name = _G.GetRealZoneText
+    for kind, list in pairs({ dungeon = DUNGEONS, raid = RAIDS }) do
+      for _, id in ipairs(list) do
+        local instance = Name and Name(id)
+        local zoneID = instance and mapsByName[instance]
+        local info = zoneID and C_Map.GetMapInfo(zoneID)
+        if instance and instance ~= "" and not (info and info.mapType == ZONE_TYPE) then
+          dungeonNames[instance] = kind
+        end
+      end
+    end
+  end
   return name and mapsByName[name]
+end
+
+---
+-- Whether a quest log zone is a dungeon (for its mark in the tracker)
+-- ("dungeon", "raid" or false)
+function Core.IsDungeonZone(name)
+  MapByName(nil)
+  return name and dungeonNames[name] or false
 end
 
 -- The zone the quest log puts the quest under
@@ -530,6 +561,28 @@ local function Build(holder)
   fade:SetDuration(0.9)
   fade:SetSmoothing("IN_OUT")
   pin.pulse = pulse
+  -- The mouse over it: the quest's name and objectives (clicks go through,
+  -- to drag the map)
+  pin:SetMouseMotionEnabled(true)
+  if pin.SetMouseClickEnabled then pin:SetMouseClickEnabled(false) end
+  pin:SetScript("OnEnter", function (self)
+    if not shownQuest then return end
+    local tooltip = _G.GameTooltip
+    tooltip:SetOwner(self, "ANCHOR_RIGHT")
+    tooltip:AddLine(C_QuestLog.GetTitleForQuestID(shownQuest) or "", 1, 0.82, 0)
+    if C_QuestLog.IsComplete and C_QuestLog.IsComplete(shownQuest) then
+      tooltip:AddLine("Ready to turn in", 0.4, 0.9, 0.4)
+    else
+      for _, objective in ipairs(C_QuestLog.GetQuestObjectives(shownQuest) or {}) do
+        if objective.text and objective.text ~= "" then
+          local gray = objective.finished and 0.5 or 1
+          tooltip:AddLine("- "..objective.text, gray, gray, gray, true)
+        end
+      end
+    end
+    tooltip:Show()
+  end)
+  pin:SetScript("OnLeave", function () _G.GameTooltip:Hide() end)
 
   arrow = top:CreateTexture(nil, "OVERLAY", nil, 7)
   arrow:SetTexture("Interface\\Minimap\\MinimapArrow")

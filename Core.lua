@@ -115,6 +115,7 @@ Core.defaults = {
     lineFontSize = 12,        -- objectives
     backgroundOpacity = 0.25, -- the Glass fading background behind the tracker
     backgroundColor = "black", -- black, brown, blue or grey
+    backgroundStyle = "soft",  -- soft (a diffuse shadow) or smudge (dark paint with rough edges)
     backgroundSize = 36,      -- how far the background reaches past the text
     lineSpacing = 0,          -- extra space between the lines of a text
     width = 260,              -- tracker width
@@ -171,7 +172,12 @@ Core.defaults = {
     gpsTextSize = 13,         -- the distance's size (the quest's name a little smaller)
     gpsUnits = "yards",       -- the distance in yards or meters
     gpsQuestName = true,      -- the quest's name under the distance
-    navMarker = false,        -- the game's navigation mark on the screen (its in-game navigation)
+    navMarker = false,        -- the navigation marker: a mark on the screen over the quest's place
+    navStyle = "game",        -- its shape: game (the game's own mark), diamond, pin, ring, flag or star
+    navSize = 32,             -- its size
+    navColor = "title",       -- its color: "title" = Default, or one of Core.COLORS
+    navTextSize = 12,         -- the distance's size
+    navUnits = "yards",       -- the distance in yards or meters
 
     -- Where the tracker is, per Edit Mode layout (layout name -> point, x, y)
     positions = {},

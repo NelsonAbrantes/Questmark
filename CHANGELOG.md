@@ -2,6 +2,17 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.2.1 (beta)
+
+- Brushed paint tracker background (option)
+- Navigation marker shapes, size and color
+- Dungeon mark on dungeon zones in the tracker
+- Following a quest opens its zone in the tracker
+- Asks which tracker to keep when Questie's is on
+- Dungeon card XP and gold no longer count quests
+- Objective tooltip on the book's map
+- Fixes: book over other windows, Share and Show map buttons, map tape, abandon animation
+
 ## 0.2.0 (beta)
 
 - Quest GPS arrow and navigation marker

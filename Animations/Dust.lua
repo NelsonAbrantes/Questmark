@@ -73,13 +73,28 @@ local function TakePicture(questID)
   if not block then return nil end
   local items = {}
   local header = TextItem(block.title)
-  if header then table.insert(items, header) end
+  if header then
+    header.row = 1
+    table.insert(items, header)
+  end
   local lines = {}
   for _, line in pairs(block.lines.used) do table.insert(lines, line) end
   table.sort(lines, function (a, b) return (a:GetTop() or 0) > (b:GetTop() or 0) end)
-  for _, line in ipairs(lines) do
-    local item = TextItem(line.Text)
-    if item then table.insert(items, item) end
+  -- (each objective with its dash: the line's text is `text`)
+  -- (each objective with its dash in one piece: "- " before its text,
+  -- from where the dash is, so it turns to dust in one go)
+  for row, line in ipairs(lines) do
+    local item = TextItem(line.text)
+    local dash = line.dash and line.dash:IsVisible() and TextItem(line.dash)
+    if item and dash then
+      local shift = item.x - dash.x
+      item.text, item.x = dash.text.." "..item.text, dash.x
+      item.width, item.stringWidth = item.width + shift, item.stringWidth + shift
+    end
+    if item then
+      item.row = row + 1
+      table.insert(items, item)
+    end
   end
   return #items > 0 and { items = items } or nil
 end
@@ -126,8 +141,9 @@ end
 local function SpawnParticle(x, y, r, g, b)
   if #liveParticles >= MAX_PARTICLES then return end
   local speck = table.remove(particles) or Core.Smooth(stage:CreateTexture(nil, "OVERLAY"))
-  speck:SetTexture(FLAT)
-  local size = 1 + math.random() * 2
+  -- (little round grains)
+  speck:SetTexture(Core.ASSETS.."circleFill")
+  local size = 2 + math.random() * 2
   speck:SetSize(size, size)
   -- A little lighter or darker than the text, like grains of sand
   local shade = 0.8 + math.random() * 0.4
@@ -260,7 +276,7 @@ local function Snap(picture)
     text:SetAlphaGradient(#item.text + SOFT_EDGE, 1)
     text:Show()
     table.insert(effect.items, {
-      fontString = text, length = VisibleLength(item.text), delay = (i - 1) * LINE_STAGGER,
+      fontString = text, length = VisibleLength(item.text), delay = ((item.row or i) - 1) * LINE_STAGGER,
       x = item.x, y = item.y, height = item.height, stringWidth = math.min(item.stringWidth, item.width),
       r = item.r, g = item.g, b = item.b,
     })
@@ -270,7 +286,8 @@ local function Snap(picture)
   -- (the quest itself hidden under its copy), then what's under it glides up
   -- into it (Tracker.lua)
   if Core.HoldLayout then
-    Core.HoldLayout(DISSOLVE_TIME + (#picture.items - 1) * LINE_STAGGER + 0.1)
+    local last = picture.items[#picture.items]
+    Core.HoldLayout(DISSOLVE_TIME + ((last.row or #picture.items) - 1) * LINE_STAGGER + 0.1)
   end
   revealStart = nil
   lastUpdate = GetTime()

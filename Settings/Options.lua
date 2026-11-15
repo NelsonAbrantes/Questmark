@@ -220,6 +220,10 @@ local function Build()
   }, "All: titles lighting up, objective progress, the pulsing \"?\", new quests sliding in and writing their name, abandoned quests turning to dust... Off: no animations")
 
   Header(layout, "Background")
+  Dropdown(category, "backgroundStyle", "Background style", {
+    { "soft", "Default" },
+    { "smudge", "Brushed paint" },
+  }, "The background's look. Default: a soft shadow fading out on every side. Brushed paint: dark paint brushed on, with rough edges")
   Slider(category, "backgroundOpacity", "Background opacity", 0, 1, 0.05, "Opacity of the background behind the tracker. 0 turns it off")
   Dropdown(category, "backgroundColor", "Background color", {
     { "black", "Black" },
@@ -274,7 +278,20 @@ local function Build()
   -- own (Options > AddOns > Questmark > Quest GPS)
   local gps, gpsLayout = Settings.RegisterVerticalLayoutSubcategory(category, "Quest GPS")
   Header(gpsLayout, "Navigation")
-  Checkbox(gps, "navMarker", "Navigation marker", "With a quest followed, the game's mark on the screen over the place it leads to, with how far it is (the game's in-game navigation, turned on by this). Shows even with Questie")
+  local navOn = Checkbox(gps, "navMarker", "Navigation marker", "With a quest followed, a mark on the screen over the place it leads to, with how far it is (out of sight, at the screen's edge, pointing the way). Shows even with Questie. It uses the game's in-game navigation, turned on by this")
+  -- (the marker's own options: grayed out while it's off)
+  local function NavOn() return Profile().navMarker end
+  for _, option in ipairs({
+    Dropdown(gps, "navStyle", "Marker", {
+      { "game", "Default" }, { "diamond", "Diamond" }, { "pin", "Map pin" }, { "ring", "Ring" }, { "flag", "Flag" }, { "star", "Star" },
+    }, "The navigation marker's shape. Default: the game's own mark (the size, color and distance options below are for the others)"),
+    Slider(gps, "navSize", "Marker size", 16, 80, 2, "Size of the navigation marker"),
+    Dropdown(gps, "navColor", "Marker color", ColorChoices({ { "title", "Default" } }), "Color of the navigation marker and its distance"),
+    Slider(gps, "navTextSize", "Text size", 8, 20, 1, "Size of the distance under the marker"),
+    Dropdown(gps, "navUnits", "Distance in", { { "yards", "Yards" }, { "meters", "Meters" } }, "The distance under the marker, in yards (like the game) or meters"),
+  }) do
+    if option and navOn and option.SetParentInitializer then option:SetParentInitializer(navOn, NavOn) end
+  end
   Header(gpsLayout, "Quest GPS")
   local gpsOn = Checkbox(gps, "gpsArrow", "Quest GPS", "With a quest followed (click its icon in the tracker), an arrow on the screen points the way to it and says how far it is. Drag it to move it; right click it to stop following the quest")
   -- (the arrow's own options: grayed out while it's off)
@@ -285,7 +302,7 @@ local function Build()
       { "triangle", "Triangle" }, { "needle", "Compass needle" }, { "dart", "Dart" },
     }, "The GPS arrow's shape"),
     Slider(gps, "gpsSize", "Arrow size", 24, 96, 2, "Size of the GPS arrow"),
-    Dropdown(gps, "gpsColor", "Arrow color", ColorChoices({ { "title", "Like the titles" } }), "Color of the GPS arrow"),
+    Dropdown(gps, "gpsColor", "Arrow color", ColorChoices({ { "title", "Default" } }), "Color of the GPS arrow"),
     Slider(gps, "gpsTextSize", "Text size", 8, 20, 1, "Size of the distance under the arrow (the quest's name a little smaller)"),
     Dropdown(gps, "gpsUnits", "Distance in", { { "yards", "Yards" }, { "meters", "Meters" } }, "The distance under the arrow, in yards (like the game) or meters"),
     Checkbox(gps, "gpsQuestName", "Quest name", "The quest's name under the distance"),

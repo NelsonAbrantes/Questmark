@@ -9,6 +9,13 @@ Plain Python, no libraries.
 - gpsNeedle.tga: a thin compass needle, its tail darker
 - gpsDart.tga: a long thin arrow with a shaft
 
+And the marks of the navigation marker, over the place itself:
+- navPin.tga: a map pin, with a hole
+- navDiamond.tga: a cut gem, its facets lighter and darker
+- navRing.tga: a ring with a dot in the middle
+- navFlag.tga: a flag on its pole
+- navStar.tga: a four pointed sparkle
+
 Run: python gpsarrow.py <output folder>
 """
 import math, struct, sys
@@ -28,6 +35,28 @@ SHAPES = {
                   ((0.36, 0.5), (0.64, 0.5), (0.5, 0.96)), 0.45],
     'gpsDart': [((0.5, 0.04), (0.78, 0.38), (0.57, 0.33), (0.57, 0.96), (0.43, 0.96), (0.43, 0.33), (0.22, 0.38)), 1.0],
 }
+
+
+def circle(cx, cy, r, n=48):
+    return tuple((cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n))
+
+
+# (a part whose lightness is None is a hole: cut out of what's after it)
+SHAPES.update({
+    'navPin': [circle(0.5, 0.36, 0.11), None,
+               circle(0.5, 0.36, 0.3), 1.0,
+               ((0.24, 0.5), (0.76, 0.5), (0.5, 0.97)), 1.0],
+    'navDiamond': [((0.5, 0.06), (0.86, 0.42), (0.5, 0.42)), 1.0,
+                   ((0.5, 0.06), (0.5, 0.42), (0.14, 0.42)), 0.8,
+                   ((0.14, 0.42), (0.5, 0.42), (0.5, 0.96)), 0.62,
+                   ((0.5, 0.42), (0.86, 0.42), (0.5, 0.96)), 0.82],
+    'navRing': [circle(0.5, 0.5, 0.11), 1.0,
+                circle(0.5, 0.5, 0.29), None,
+                circle(0.5, 0.5, 0.42), 1.0],
+    'navFlag': [((0.3, 0.1), (0.86, 0.26), (0.3, 0.46)), 1.0,
+                ((0.21, 0.06), (0.29, 0.06), (0.29, 0.95), (0.21, 0.95)), 0.7],
+    'navStar': [((0.5, 0.02), (0.6, 0.4), (0.98, 0.5), (0.6, 0.6), (0.5, 0.98), (0.4, 0.6), (0.02, 0.5), (0.4, 0.4)), 1.0],
+})
 
 
 def inside(px, py, poly):
@@ -65,8 +94,9 @@ def draw(parts):
                     py = (y + (sy + 0.5) / SAMPLES) / SIZE
                     for poly, shade in polys:
                         if inside(px, py, poly):
-                            cover += 1
-                            light += shade
+                            if shade is not None:
+                                cover += 1
+                                light += shade
                             break
             n = SAMPLES * SAMPLES
             light = light / cover if cover else 0
@@ -74,7 +104,11 @@ def draw(parts):
             cx, cy = (x + 0.5) / SIZE, (y + 0.5) / SIZE
             # (a soft dark edge around it, so it reads on any ground)
             near = min(edge_distance(cx, cy, poly) for poly, _ in polys)
-            outside = not any(inside(cx, cy, poly) for poly, _ in polys)
+            outside = True
+            for poly, shade in polys:
+                if inside(cx, cy, poly):
+                    outside = shade is None
+                    break
             glow = max(0, 1 - near / 0.06) * 0.75 if (cover < 1 and outside) else 0
             alpha = cover + glow * (1 - cover)
             mix = cover / alpha if alpha > 0 else 0

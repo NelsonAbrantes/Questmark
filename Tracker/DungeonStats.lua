@@ -233,7 +233,8 @@ function Core.PlaceDungeonStats(card, entry, top, width, animate)
   xp.format = function (value, rising)
     local text = "+"..Plain(value)
     if rising or not entry.xpMax or entry.xpMax <= 0 then return text end
-    return text..(" |cff999999%d%%|r"):format(math.floor(100 * value / entry.xpMax))
+    -- (the share of a level between brackets, apart from the number)
+    return text..(" |cff999999(%d%%)|r"):format(math.floor(100 * value / entry.xpMax))
   end
   if entry.xp then
     SetValue(xp, entry.xp, animate)

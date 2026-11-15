@@ -252,10 +252,24 @@ local function PlaceZone(entry, y, collapsed)
   -- (the line only under open zones: the minimized ones are a plain list)
   label.line:SetShown(not collapsed)
   label.text:SetWidth(content:GetWidth() - ZONE_ICON - 8)
+  -- (a dungeon or raid: the game's mark for it after its name)
+  local name = entry.zone
+  local instance = Core.IsDungeonZone and Core.IsDungeonZone(name)
+  if instance then
+    local Atlas = _G.C_Texture and _G.C_Texture.GetAtlasInfo
+    -- (the game's picture has room around it: a little bigger than the letters)
+    local size = math.floor(Profile().lineFontSize * 1.85 + 0.5)
+    local mark = instance == "raid" and Atlas and Atlas("Raid") and "Raid" or "Dungeon"
+    if Atlas and Atlas(mark) then
+      name = ("%s |A:%s:%d:%d|a"):format(name, mark, size, size)
+    else
+      name = ("%s |TInterface\\Minimap\\Dungeon:%d:%d|t"):format(name, size, size)
+    end
+  end
   if collapsed then
-    label.text:SetText(entry.zone.." |cff999999("..entry.count..")|r")
+    label.text:SetText(name.." |cff999999("..entry.count..")|r")
   else
-    label.text:SetText(entry.zone)
+    label.text:SetText(name)
   end
   UpdateZoneColor(label)
   return collapsed and height or height + ZONE_SPACE
@@ -1190,6 +1204,23 @@ events:SetScript("OnEvent", function (_, event, ...)
     -- Tracked again in the quest log: shown again
     local questID, added = ...
     if added then Core.UnhideQuest(questID) end
+  elseif event == "SUPER_TRACKING_CHANGED" then
+    -- A quest followed (from the map, the tracker, anywhere): tracked if it
+    -- wasn't, and its zone opens if it was minimized
+    local questID = C_SuperTrack.GetSuperTrackedQuestID()
+    if questID and questID > 0 and C_QuestLog.GetLogIndexForQuestID(questID) then
+      local shown = false
+      for _, id in ipairs(Core.ShownQuestIDs and Core.ShownQuestIDs() or {}) do
+        if id == questID then shown = true break end
+      end
+      if not shown then
+        Core.UnhideQuest(questID)
+        C_QuestLog.AddQuestWatch(questID)
+        -- (its zone is known once the tracker has it: a moment later)
+        C_Timer.After(0.5, function () Core.OpenZoneOf(questID) end)
+      end
+      Core.OpenZoneOf(questID)
+    end
   elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then
     -- (a moment after arriving: the zone's name and the quest log are ready then)
     C_Timer.After(1, Core.FocusZone)
