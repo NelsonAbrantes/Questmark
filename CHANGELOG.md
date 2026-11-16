@@ -2,6 +2,14 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.2.2 (beta)
+
+- Quest book search (the magnifying glass by the title)
+- The book opens with no quest chosen
+- Ctrl-click a reward to try it on, Shift-click to link it
+- Quest icons in the tracker light up under the mouse
+- The book sits with the game's windows
+
 ## 0.2.1 (beta)
 
 - Brushed paint tracker background (option)

@@ -358,6 +358,18 @@ local function RewardButton(i)
     tooltip:Show()
   end)
   button:SetScript("OnLeave", function () _G.GameTooltip:Hide() end)
+  -- Like the game's rewards: Ctrl-click tries it on, Shift-click links it
+  button:SetScript("OnClick", function (self)
+    if self.kind == "currency" or not selected then return end
+    local link = _G.GetQuestLogItemLink and _G.GetQuestLogItemLink(self.kind, self.index, selected)
+    if not link then return end
+    if _G.IsModifiedClick("DRESSUP") and _G.DressUpItemLink then
+      _G.DressUpItemLink(link)
+    elseif _G.IsModifiedClick("CHATLINK") then
+      local insert = (_G.ChatFrameUtil and _G.ChatFrameUtil.InsertLink) or _G.ChatEdit_InsertLink
+      if insert then insert(link) end
+    end
+  end)
   rewardButtons[i] = button
   return button
 end
@@ -753,9 +765,10 @@ end
 -- The book itself: its frame, pages, shadow, ribbon and close button
 local function BuildBook(gameBook)
   book = CreateFrame("Frame", "QuestmarkQuestBook", _G.UIParent)
-  book:SetFrameStrata("DIALOG")
-  -- (in front of other windows of its layer when opened or clicked: its
-  -- writing, map and turning sheets showed through them, a Dungeon Journal)
+  -- (in the game's windows' layer, like the character window or the map:
+  -- the last one opened or clicked in front. Addon windows a layer higher,
+  -- like the Dungeon Journal, stay over it, never through its writing)
+  book:SetFrameStrata("MEDIUM")
   book:SetToplevel(true)
   book:SetSize(BOOK_W, BOOK_H)
   -- (the spellbook's pages: as big on the screen as the game's spellbook)
@@ -971,6 +984,95 @@ local function BuildLeft()
   count:SetPoint("TOP", heading, "BOTTOM", 0, -16)
   count:SetTextColor(unpack(FADED))
 
+  -- The search: only a little magnifying glass in ink beside the title.
+  -- Clicked, a line to write on takes the place of the quests' count (the
+  -- count goes after it: "3 of 22 quests"); left empty, it goes away again.
+  -- It takes the keys only when clicked; Escape empties it, then lets go.
+  -- What it finds shows as you type (FillList)
+  local search = CreateFrame("EditBox", nil, left)
+  search:SetSize(TEXT_W * 0.42, 18)
+  search:SetPoint("TOP", heading, "BOTTOM", 0, -12)
+  search:SetAutoFocus(false)
+  search:SetFontObject(fonts.Small)
+  search:SetTextColor(unpack(INK))
+  search:SetTextInsets(2, 14, 0, 0)
+  search:SetMaxLetters(40)
+  search:Hide()
+  -- (under it, the same ornament as under the title, smaller)
+  Ornament(search, search, TEXT_W * 0.42)
+  -- (a red ink cross to empty it, while there's something in it)
+  local clear = CreateFrame("Button", nil, search)
+  clear:SetSize(14, 14)
+  clear:SetPoint("RIGHT", 0, 0)
+  clear.label = clear:CreateFontString(nil, "ARTWORK")
+  clear.label:SetFontObject(fonts.Small)
+  clear.label:SetPoint("CENTER")
+  clear.label:SetText("x")
+  clear.label:SetTextColor(unpack(RED))
+  clear:Hide()
+
+  -- The glass, faint until the mouse is over it
+  local glass = CreateFrame("Button", nil, left)
+  glass:SetSize(15, 15)
+  glass:SetPoint("LEFT", heading, "RIGHT", 10, 0)
+  glass.icon = glass:CreateTexture(nil, "ARTWORK")
+  glass.icon:SetAllPoints()
+  if Atlas("common-search-magnifyingglass") then
+    glass.icon:SetAtlas("common-search-magnifyingglass")
+  else
+    glass.icon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
+  end
+  glass.icon:SetDesaturated(true)
+  local function Faint(on) glass.icon:SetVertexColor(INK[1], INK[2], INK[3], on and 0.45 or 0.9) end
+  Faint(true)
+  glass:SetScript("OnEnter", function () Faint(false) end)
+  glass:SetScript("OnLeave", function () Faint(true) end)
+
+  -- Open: the line where the count was, the count after it
+  local function Open(on)
+    if search:IsShown() and not on then glass.closedAt = GetTime() end
+    search:SetShown(on)
+    count:ClearAllPoints()
+    if on then
+      count:SetPoint("LEFT", search, "RIGHT", 14, 0)
+    else
+      count:SetPoint("TOP", heading, "BOTTOM", 0, -16)
+    end
+  end
+  -- (a toggle: open, it closes, emptied. A click on the glass first takes
+  -- the keys from the line, which closes it if empty: that click then
+  -- closed it, it doesn't open it again)
+  glass:SetScript("OnClick", function ()
+    if search:IsShown() then
+      search:SetText("")
+      search:ClearFocus()
+      Open(false)
+    elseif not (glass.closedAt and GetTime() - glass.closedAt < 0.3) then
+      Open(true)
+      search:SetFocus()
+    end
+  end)
+  clear:SetScript("OnClick", function () search:SetText("") search:ClearFocus() end)
+  local function Changed(self)
+    local text = self:GetText() or ""
+    clear:SetShown(text ~= "")
+    if book.query ~= text then
+      book.query = text
+      FillList()
+      list:SetVerticalScroll(0)
+    end
+  end
+  search:SetScript("OnTextChanged", Changed)
+  -- (left empty: only the glass again)
+  search:SetScript("OnEditFocusLost", function (self)
+    if (self:GetText() or "") == "" then Open(false) end
+  end)
+  search:SetScript("OnEnterPressed", search.ClearFocus)
+  search:SetScript("OnEscapePressed", function (self)
+    if (self:GetText() or "") ~= "" then self:SetText("") else self:ClearFocus() end
+  end)
+  book.search, book.searchOpen = search, Open
+
   list = CreateFrame("ScrollFrame", nil, left)
   list:SetPoint("TOPLEFT", 8, -70)
   list:SetPoint("BOTTOMRIGHT")
@@ -1135,6 +1237,13 @@ local function BuildEvents()
     Sound("IG_QUEST_LOG_OPEN")
   end)
   book:SetScript("OnHide", function (self)
+    -- (the search starts empty next time)
+    self.query = nil
+    if self.search then
+      self.search:SetText("")
+      self.search:ClearFocus()
+      self.searchOpen(false)
+    end
     self:UnregisterEvent("QUEST_LOG_UPDATE")
     self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
     self:UnregisterEvent("QUEST_REMOVED")
@@ -1655,9 +1764,43 @@ end
 ----
 -- Filling the pages
 
+-- The quests the search finds (in their name, their zone or their
+-- objectives), with their zones; and how many
+local function Searched(quests, query)
+  local found, kept, zone, zoneIn = {}, 0, nil, false
+  for _, item in ipairs(quests) do
+    if item.header then
+      zone, zoneIn = item, false
+    else
+      local words = { item.title or "", item.zone and item.zone.title or "" }
+      for _, objective in ipairs(C_QuestLog.GetQuestObjectives(item.questID) or {}) do
+        words[#words + 1] = objective.text or ""
+      end
+      if table.concat(words, " "):lower():find(query, 1, true) then
+        -- (its zone once, before its first quest found)
+        if zone and not zoneIn then
+          found[#found + 1] = zone
+          zoneIn = true
+        end
+        found[#found + 1] = item
+        kept = kept + 1
+      end
+    end
+  end
+  return found, kept
+end
+
 function FillList()
   local quests, n = QuestList()
-  count:SetText(n == 1 and "1 quest" or n.." quests")
+  -- (the search box: only what it finds, every zone open)
+  local query = book.query ~= nil and book.query ~= "" and book.query:lower() or nil
+  local shownCount = n
+  if query then quests, shownCount = Searched(quests, query) end
+  if query then
+    count:SetText(("%d of %d quests"):format(shownCount, n))
+  else
+    count:SetText(n == 1 and "1 quest" or n.." quests")
+  end
   local at = list:GetVerticalScroll()
   for _, row in ipairs(rows) do row:Hide() end
   local collapsed = Collapsed()
@@ -1665,7 +1808,7 @@ function FillList()
   local width = listContent:GetWidth()
   local y, i = 0, 0
   for _, item in ipairs(quests) do
-    if item.header or not (item.zone and collapsed[item.zone.title]) then
+    if item.header or query or not (item.zone and collapsed[item.zone.title]) then
       i = i + 1
       local row = Row(i)
       local indent = item.header and 0 or INDENT
@@ -1679,7 +1822,7 @@ function FillList()
       row.text:SetShadowOffset(1, -1)
       row.text:ClearAllPoints()
       if item.header then
-        local closed = collapsed[item.title]
+        local closed = not query and collapsed[item.title]
         row.color = ZONE()
         row.toggle:SetVertexColor(unpack(row.color))
         row.text:SetText(item.title)
@@ -1734,7 +1877,7 @@ function FillList()
       y = y + row:GetHeight() + ROW_GAP
     end
   end
-  if n == 0 then
+  if n == 0 or (query and shownCount == 0) then
     local row = Row(1)
     row.questID, row.zone = nil, nil
     row.color = FADED
@@ -1743,7 +1886,7 @@ function FillList()
     row.selected:Hide()
     row.text:SetFontObject(fonts.ListPlain)
     row.text:SetShadowOffset(0, 0)
-    row.text:SetText("No quests taken.")
+    row.text:SetText(n == 0 and "No quests taken." or "No quests found.")
     row.text:SetTextColor(unpack(FADED))
     row.text:ClearAllPoints()
     row.text:SetPoint("TOPLEFT")
@@ -2019,7 +2162,7 @@ function Core.BookOpenQuest(questID)
 end
 
 ---
--- Opens the book (on the quest you follow, if none is open); again closes it
+-- Opens the book with no quest chosen; again closes it
 function Core.ShowQuestList()
   if not Core.BookOn() then return end
   if book and book:IsShown() and not closing then
@@ -2028,17 +2171,9 @@ function Core.ShowQuestList()
   end
   Open()
   wantMap = false
-  if selected and C_QuestLog.GetLogIndexForQuestID(selected) then
-    Select(selected) -- (its map again: it goes with the book)
-  else
-    local SuperTrack = _G.C_SuperTrack
-    local followed = SuperTrack and SuperTrack.GetSuperTrackedQuestID and SuperTrack.GetSuperTrackedQuestID()
-    if followed and followed > 0 and C_QuestLog.GetLogIndexForQuestID(followed) then
-      Select(followed)
-    else
-      Select(nil)
-    end
-  end
+  -- (opened on its own: no quest chosen yet, the right page waiting; a
+  -- quest opened from the tracker or the map goes through ShowQuestText)
+  Select(nil)
 end
 
 ----

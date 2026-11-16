@@ -364,8 +364,18 @@ local blocks = Pool(function ()
   block.poi:SetHitRectInsets(-4, -2, -4, -4)
   Core.CreateIcon(block.poi, ICON_SIZE)
   block.poi:SetScript("OnClick", function () ClickPoi(block) end)
-  block.poi:SetScript("OnEnter", function (self) self.gftHover = true; Core.ColorIcon(self, block.entry.super) end)
-  block.poi:SetScript("OnLeave", function (self) self.gftHover = false; Core.ColorIcon(self, block.entry.super) end)
+  -- (under the mouse: brighter, a little bigger, a soft light around it:
+  -- it can be clicked, to follow the quest)
+  block.poi:SetScript("OnEnter", function (self)
+    self.gftHover = true
+    Core.ColorIcon(self, block.entry.super)
+    Core.HoverIcon(self, true)
+  end)
+  block.poi:SetScript("OnLeave", function (self)
+    self.gftHover = false
+    Core.ColorIcon(self, block.entry.super)
+    Core.HoverIcon(self, false)
+  end)
   block.lines = Pool(function () return CreateLine(block) end, function (line)
     line.strike:Hide()
     line.gftAnimating = nil

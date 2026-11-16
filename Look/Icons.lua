@@ -81,6 +81,9 @@ local PULSE_GROW = 0.18  -- 18% bigger at the top
 local RING_TIME, RING_SIZE = 1.0, 30
 local RING_LIGHT_UP = 0.25 -- part of the time it takes to light up
 local PULSE_EASE = 0.4     -- seconds the "?" pulse takes to calm down or come back around the ring
+local HOVER_TIME = 0.15    -- seconds to grow under the mouse (and to come back)
+local HOVER_GROW = 0.22    -- 22% bigger under the mouse
+local HOVER_GLOW = 2.4     -- the soft light around it, times the icon's size
 
 local animated = {} -- button -> { pulse = start time, ring = start time }
 local animator = CreateFrame("Frame")
@@ -112,6 +115,25 @@ animator:SetScript("OnUpdate", function ()
       alpha = 1 - 0.4 * wave
     end
 
+    -- Under the mouse (it can be clicked): a little bigger, a soft light
+    -- around it, both easing in and out
+    if state.hoverTo then
+      local step = (now - (state.hoverAt or now)) / HOVER_TIME
+      state.hoverAt = now
+      local k = state.hoverK or 0
+      k = state.hoverTo > k and math.min(1, k + step) or math.max(0, k - step)
+      state.hoverK = k
+      local eased = k * k * (3 - 2 * k)
+      scale = scale * (1 + HOVER_GROW * eased)
+      local glow = button.gftHoverGlow
+      if glow then
+        glow:SetVertexColor(Core.IconColor(true))
+        glow:SetAlpha(0.5 * eased)
+        glow:SetShown(k > 0)
+      end
+      if k == state.hoverTo and k == 0 then state.hoverTo = nil end
+    end
+
     if state.ring and button.gftRing then
       local k = (now - state.ring) / RING_TIME
       if k < 1 then
@@ -135,7 +157,7 @@ animator:SetScript("OnUpdate", function ()
     button.gftOutline:SetSize(size, size)
     button.gftOutline:SetAlpha(alpha)
 
-    if not (state.pulse or state.ring) then
+    if not (state.pulse or state.ring or state.hoverTo) then
       animated[button] = nil
     end
   end
@@ -158,6 +180,31 @@ function Core.AnimateIcon(button, key, on)
     -- Back to its normal size (the animator lets go of it once nothing's left)
     animator:Show()
   end
+end
+
+---
+-- The mouse over an icon that can be clicked (on) or gone (off): it grows a
+-- little and a soft light comes around it
+function Core.HoverIcon(button, on)
+  if not button or not button.gftIcon then return end
+  if not button.gftHoverGlow then
+    local glow = Smooth(button:CreateTexture(nil, "OVERLAY", nil, 4))
+    glow:SetTexture(ASSETS.."circleSoft")
+    glow:SetBlendMode("ADD")
+    glow:SetPoint("CENTER")
+    local size = button.gftIconSize * HOVER_GLOW
+    glow:SetSize(size, size)
+    glow:SetAlpha(0)
+    glow:Hide()
+    button.gftHoverGlow = glow
+  end
+  local state = animated[button]
+  if not state then
+    state = {}
+    animated[button] = state
+  end
+  state.hoverTo, state.hoverAt = on and 1 or 0, GetTime()
+  animator:Show()
 end
 
 ---
