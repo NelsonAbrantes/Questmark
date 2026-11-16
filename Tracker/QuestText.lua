@@ -46,8 +46,8 @@ local ICON = 28
 local INK = { 0.22, 0.13, 0.06 }
 local RED = { 0.48, 0.10, 0.04 } -- titles, and the quest under the mouse or open
 local GREEN = { 0.10, 0.36, 0.08 } -- done
-local FADED = { 0.42, 0.32, 0.20 }
-local FADED_HEX = "|cff6b5233"
+local FADED = { 0.30, 0.21, 0.12 } -- (darker since the paper is: it got lost on it)
+local FADED_HEX = "|cff4d361f"
 local COUNT = { 0.36, 0.20, 0.08 } -- a zone's count of quests: a warm dark ink
 local CREAM = { 1.0, 0.93, 0.78 } -- the cream of the game's zone names
 -- A color of the list's options (cream, or one of Core.COLORS); nil if unknown
@@ -82,6 +82,14 @@ local turning -- a page turn going (the tracker's own book): { t, questID, fille
 local CloseBook, StartOpen, StartFlip, Flash, ResetAnimations -- (Animations, below)
 local BookDust -- (the open quest abandoned turns to dust, below)
 local pageLeft, pageRight -- the spellbook's pages (nil with the tracker's own book)
+local bookPicture -- the tracker's own book (nil with the spellbook's pages)
+local earLayers -- the turned-up corner's pictures of the page
+
+-- How bright the paper is (Options: Page brightness), 0.5 to 1: the pages,
+-- their turning sheets, the fades over them and the turned-up corner
+local function Paper()
+  return math.max(0.5, math.min(1, (Core.db.profile.bookPaper or 75) / 100))
+end
 local ribbonMark -- the spellbook's ribbon, in the middle
 local bookShadow -- the soft shadow under the spellbook's pages
 local bookBase = 1 -- the book's own size (the chosen % is of it)
@@ -345,11 +353,8 @@ local function RewardButton(i)
   button.name:SetMaxLines(2)
   button:SetScript("OnEnter", function (self)
     local tooltip = _G.GameTooltip
-    -- (just above the reward, from its icon: "to the right" went past the
-    -- book's edge, the game pushing it back over the page)
-    tooltip:SetOwner(self, "ANCHOR_NONE")
-    tooltip:ClearAllPoints()
-    tooltip:SetPoint("BOTTOMLEFT", self.icon, "TOPLEFT", -4, 6)
+    -- (following the mouse, like the game's tooltips over the world)
+    tooltip:SetOwner(self, "ANCHOR_CURSOR")
     if self.kind == "currency" then
       pcall(tooltip.SetQuestLogCurrency, tooltip, "reward", self.index, selected)
     else
@@ -536,7 +541,8 @@ local function PlaceFade(texture, x0, x1, y0, y1, solidTop)
       texture:ClearAllPoints()
       texture:SetPoint("TOPLEFT", book, "TOPLEFT", x0, -y0)
       texture:SetSize(x1 - x0, y1 - y0)
-      local solid, clear = _G.CreateColor(1, 1, 1, 1), _G.CreateColor(1, 1, 1, 0)
+      local k = Paper()
+      local solid, clear = _G.CreateColor(k, k, k, 1), _G.CreateColor(k, k, k, 0)
       -- (vertical gradients go from the bottom up)
       if solidTop then texture:SetGradient("VERTICAL", clear, solid) else texture:SetGradient("VERTICAL", solid, clear) end
       return true
@@ -823,6 +829,8 @@ local function BuildBook(gameBook)
     rightPage:SetAtlas(GAME_RIGHT)
     rightPage:SetPoint("TOPLEFT", book, "TOP")
     rightPage:SetPoint("BOTTOMRIGHT")
+    leftPage:SetVertexColor(Paper(), Paper(), Paper())
+    rightPage:SetVertexColor(Paper(), Paper(), Paper())
     local ribbon = Atlas(GAME_RIBBON)
     if ribbon then
       -- (as big as on the spellbook, for the book's size here)
@@ -841,6 +849,8 @@ local function BuildBook(gameBook)
     local picture = Core.Smooth(book:CreateTexture(nil, "BACKGROUND"))
     picture:SetTexture(Core.ASSETS.."book")
     picture:SetAllPoints()
+    picture:SetVertexColor(Paper(), Paper(), Paper())
+    bookPicture = picture
   end
 
   -- Closing: a cross of two brush strokes in the titles' red ink, in the
@@ -894,8 +904,10 @@ local function BuildBook(gameBook)
       layer:SetSize(CORNER_W * scale, CORNER_H * scale)
       layer:SetPoint("BOTTOMRIGHT")
       layer:SetTexture(ear.file)
+      layer:SetVertexColor(Paper(), Paper(), Paper())
       layers[i] = layer
     end
+    earLayers = layers
     local du = (ear.rightTexCoord - ear.leftTexCoord) / CORNER_COLUMNS
     local dv = (ear.bottomTexCoord - ear.topTexCoord) / CORNER_ROWS
     local function Frame(layer, k)
@@ -1408,7 +1420,7 @@ local function Unfold(p)
   if not pageLeft then return end
   local half = BOOK_W / 2
   local w = math.max(1, half * p)
-  local shade = 0.55 + 0.45 * p
+  local shade = (0.55 + 0.45 * p) * Paper()
   pageLeft:ClearAllPoints()
   pageLeft:SetPoint("TOPRIGHT", book, "TOP")
   pageLeft:SetPoint("BOTTOMRIGHT", book, "BOTTOM")
@@ -1499,7 +1511,9 @@ local function UpdateSheet(p, kind)
       strip:SetTexture(left.file)
       strip:SetTexCoord(U(d1), U(d0), left.topTexCoord, left.bottomTexCoord)
     end
-    strip:SetVertexColor(shade, shade, shade, alpha)
+    -- (the paper as bright as the pages; the cover as it is)
+    local k = (c >= 0 or kind == "turn") and shade * Paper() or shade
+    strip:SetVertexColor(k, k, k, alpha)
     strip:Show()
     x = x2
     if i == FLIP_STRIPS then edgeLift = math.sin(angle) end
@@ -2461,6 +2475,12 @@ Core:OnChange(function (key)
   if not book then return end
   if key == "bookSize" or key == "profile" then
     book.Resize(bookBase * (Core.db.profile.bookSize or 100) / 100)
+    UpdateFades()
+  elseif key == "bookPaper" then
+    local k = Paper()
+    for _, texture in pairs({ pageLeft, pageRight, bookPicture, earLayers and earLayers[1], earLayers and earLayers[2] }) do
+      texture:SetVertexColor(k, k, k)
+    end
     UpdateFades()
   elseif key == "bookMapSize" then
     MAP_W, MAP_H = MapSize()

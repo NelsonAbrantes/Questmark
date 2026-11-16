@@ -146,6 +146,7 @@ Core.defaults = {
     bookListSize = 9,         -- its quest list (the zones go with it)
     bookZoneColor = "cream",  -- the list's zones: cream, yellow or one of Core.COLORS
     bookQuestColor = "auto",  -- the list's quests: "auto" = by difficulty, cream or one of Core.COLORS
+    bookPaper = 75,           -- how bright its pages are (%; 50 to 100)
     bookMapSize = 88,         -- its map (% of the page, Show map)
     bookMapZoom = 1,          -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
