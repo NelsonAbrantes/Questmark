@@ -54,7 +54,7 @@ local function Profile() return Core.db.profile end
 
 -- Its look (Options: GPS arrow, size, text size, color)
 local STYLES = { arrow = "gpsArrow", chevron = "gpsChevron", double = "gpsDouble",
-  triangle = "gpsTriangle", needle = "gpsNeedle", dart = "gpsDart" }
+  triangle = "gpsTriangle", needle = "gpsNeedle", dart = "gpsDart", sword = "gpsSword" }
 
 local function Look()
   local profile = Profile()

@@ -284,6 +284,84 @@ local OWN_ICONS = {
   ["The Hall of Thanes"] = "Interface\\Icons\\inv_misc_statue_07",
 }
 
+-- Icons that fit better than the journal addon's: the game's own, most
+-- often the face of the dungeon's best known boss. Several names each (the
+-- game's icons aren't listed anywhere): the first the game has is used, else
+-- the journal addon's icon stays (/qm icons tells which)
+local SCARLET = { "achievement_boss_highinquistor_whitemane", "achievement_boss_highinquisitor_whitemane",
+  "achievement_boss_whitemane", "achievement_boss_herod" }
+local BETTER_ICONS = {
+  ["The Deadmines"] = { "achievement_boss_edwinvancleef" },
+  ["Alcaz Prison"] = { "inv_misc_bandana_03" }, -- the Defias' bandana: they hold it
+  ["Ragefire Chasm"] = { "achievement_boss_taragaman", "achievement_boss_taragamanthehungerer",
+    "achievement_boss_bazzalan" },
+  ["Wailing Caverns"] = { "achievement_boss_mutanus_the_devourer", "achievement_boss_mutanusthedevourer",
+    "achievement_boss_mutanus" },
+  ["Shadowfang Keep"] = { "achievement_boss_archmagearugal", "achievement_boss_archmage_arugal",
+    "achievement_boss_arugal" },
+  ["Blackfathom Deeps"] = { "achievement_boss_bazil_akumai", "achievement_boss_akumai" },
+  ["The Stockade"] = { "achievement_boss_bazil_thredd", "achievement_boss_bazilthredd" },
+  ["Gnomeregan"] = { "achievement_boss_mekgineer_thermaplugg", "achievement_boss_mekgineerthermaplugg",
+    "achievement_boss_thermaplugg" },
+  ["Razorfen Kraul"] = { "achievement_boss_charlgarazorflank", "achievement_boss_charlga_razorflank" },
+  ["Scarlet Monastery"] = SCARLET,
+  ["Scarlet Monastery: Cathedral"] = SCARLET,
+  ["Scarlet Monastery: Armory"] = { "achievement_boss_herod" },
+  ["Scarlet Monastery: Library"] = { "achievement_boss_arcanistdoan", "achievement_boss_arcanist_doan" },
+  ["Scarlet Monastery: Graveyard"] = { "achievement_boss_bloodmagethalnos", "achievement_boss_bloodmage_thalnos" },
+  ["Razorfen Downs"] = { "achievement_boss_amnennarthecoldbringer", "achievement_boss_amnennar_the_coldbringer",
+    "achievement_boss_amnennar" },
+  ["Uldaman"] = { "achievement_boss_archaedas" },
+  ["Zul'Farrak"] = { "achievement_boss_chiefukorzsandscalp", "achievement_boss_chief_ukorz_sandscalp",
+    "achievement_boss_gahzrilla" },
+  ["Maraudon"] = { "achievement_boss_princesstheradras", "achievement_boss_princess_theradras" },
+  ["Sunken Temple"] = { "achievement_boss_shadeoferanikus", "achievement_boss_eranikus",
+    "achievement_boss_avatarofhakkar" },
+  ["Blackrock Depths"] = { "achievement_boss_emperordagranthaurissan", "achievement_boss_emperor_dagran_thaurissan" },
+  ["Lower Blackrock Spire"] = { "achievement_boss_overlordwyrmthalak", "achievement_boss_overlord_wyrmthalak" },
+  ["Upper Blackrock Spire"] = { "achievement_boss_generaldrakkisath", "achievement_boss_general_drakkisath" },
+  ["Dire Maul: East"] = { "achievement_boss_alzzinthewildshaper", "achievement_boss_alzzin" },
+  ["Dire Maul: West"] = { "achievement_boss_princetortheldrin", "achievement_boss_prince_tortheldrin",
+    "achievement_boss_immolthar" },
+  ["Dire Maul: North"] = { "achievement_boss_kinggordok", "achievement_boss_king_gordok" },
+  ["Scholomance"] = { "achievement_boss_darkmastergandling", "achievement_boss_darkmaster_gandling" },
+  ["Stratholme"] = { "achievement_boss_baronrivendare", "achievement_boss_baron_rivendare" },
+  ["Stratholme: Undead"] = { "achievement_boss_baronrivendare", "achievement_boss_baron_rivendare" },
+  ["Stratholme: Living"] = { "achievement_boss_balnazzar" },
+  ["Molten Core"] = { "achievement_boss_ragnaros" },
+  ["Onyxia's Lair"] = { "achievement_boss_onyxia" },
+  ["Blackwing Lair"] = { "achievement_boss_nefarion" },
+  ["Zul'Gurub"] = { "achievement_boss_hakkar" },
+  ["Ruins of Ahn'Qiraj"] = { "achievement_boss_ossiriantheunscarred", "achievement_boss_ossirian" },
+  ["Temple of Ahn'Qiraj"] = { "achievement_boss_cthun" },
+  ["Naxxramas"] = { "achievement_boss_kelthuzad_01", "achievement_boss_kelthuzad" },
+}
+-- (shown in gray, for an icon whose color doesn't fit)
+local GRAY_ICONS = {}
+
+-- The better icon of a dungeon the game has (nil: the journal addon's stays;
+-- also when the game can't tell which icons it has)
+local function BetterIcon(name)
+  local FileID = _G.GetFileIDFromPath
+  if not (name and FileID and BETTER_ICONS[name]) then return nil end
+  for _, file in ipairs(BETTER_ICONS[name]) do
+    local path = "Interface\\Icons\\"..file
+    if FileID(path) then return path end
+  end
+end
+
+-- (/qm icons: which icon each dungeon gets)
+function Core.DungeonIconReport()
+  local names = {}
+  for name in pairs(BETTER_ICONS) do names[#names + 1] = name end
+  table.sort(names)
+  for _, name in ipairs(names) do
+    local path = BetterIcon(name)
+    print(("|T%s:16|t %s: %s"):format(path or "Interface\\Icons\\INV_Misc_QuestionMark", name,
+      path and path:match("([^\\]+)$") or "|cff999999the journal's|r"))
+  end
+end
+
 ----
 -- Starting, keeping and ending a run
 
@@ -333,7 +411,9 @@ local function UpdateInside()
       Run().location = type(dungeon.location) == "string" and dungeon.location or nil
       Run().levels = type(dungeon.level) == "string" and dungeon.level or nil
     end
-    Run().icon = Run().icon or OWN_ICONS[Run().name]
+    local better = BetterIcon(Run().name)
+    Run().icon = better or Run().icon or OWN_ICONS[Run().name]
+    Run().iconGray = better and GRAY_ICONS[Run().name] or nil
   end
   if inside ~= wasInside then Core:Changed("layout") end
 end
@@ -444,7 +524,7 @@ local function LookForNewCopy(run)
           -- (counted from the way in: the quests turned in since then too)
           new.questXP, new.questMoney = run.questXP, run.questMoney
           new.bosses = BossList(run.name) or run.bosses
-          new.icon, new.location, new.levels = run.icon, run.location, run.levels
+          new.icon, new.iconGray, new.location, new.levels = run.icon, run.iconGray, run.location, run.levels
           Core.Refresh()
         end
         return
@@ -633,7 +713,10 @@ local function DungeonNames()
   local function Add(name)
     if name and not seen[name] then seen[name] = true table.insert(names, name) end
   end
-  for name in pairs(type(journal) == "table" and type(journal.DB) == "table" and journal.DB or {}) do Add(name) end
+  -- (not its quest chain pages: the Onyxia Attunement, the Cozy Sleeping Bag...)
+  for name, page in pairs(type(journal) == "table" and type(journal.DB) == "table" and journal.DB or {}) do
+    if not (type(page) == "table" and page.questChainPage) then Add(name) end
+  end
   for _, dungeon in pairs(AtlasData() or {}) do Add(AtlasName(dungeon)) end
   table.sort(names)
   return names
@@ -671,7 +754,7 @@ function Core.DungeonDemo(typed)
   demo = {
     name = name, start = time() - 754, xp = 2380, money = 0, copper = 4210, deaths = 0, deathsBy = {},
     killed = {}, killedAt = {}, bosses = JournalAddon(name) or AtlasBosses(name) or DEMO_BOSSES,
-    icon = dungeon and dungeon.icon or "Interface\\Icons\\Spell_Frost_SummonWaterElemental",
+    icon = BetterIcon(name) or dungeon and dungeon.icon or "Interface\\Icons\\Spell_Frost_SummonWaterElemental",
     levels = dungeon and dungeon.level or (range and range[1] and (range[1].."-"..range[#range])) or "35-40",
     id = "demo:"..name,
   }
@@ -716,7 +799,7 @@ function Core.DungeonSection()
     -- (what the fighting and looting brought: not the quests turned in)
     copper = demo and demo.copper or math.max(0, GetMoney() - run.money - (run.questMoney or 0)),
     deaths = run.deaths, deathsBy = run.deathsBy, bosses = {}, lines = {},
-    icon = run.icon, location = run.location, levels = run.levels,
+    icon = run.icon, iconGray = run.iconGray, location = run.location, levels = run.levels,
   }
   if not AtMaxLevel() then
     entry.xp, entry.xpMax = demo and run.xp or math.max(0, run.xp - (run.questXP or 0)), UnitXPMax("player")

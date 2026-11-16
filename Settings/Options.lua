@@ -283,7 +283,7 @@ local function Build()
   local function NavOn() return Profile().navMarker end
   for _, option in ipairs({
     Dropdown(gps, "navStyle", "Marker", {
-      { "game", "Default" }, { "diamond", "Diamond" }, { "pin", "Map pin" }, { "ring", "Ring" }, { "flag", "Flag" }, { "star", "Star" },
+      { "game", "Default" }, { "diamond", "Diamond" }, { "pin", "Map pin" }, { "ring", "Ring" }, { "flag", "Flag" }, { "star", "Star" }, { "quest", "Quest mark" }, { "faction", "Faction crest" },
     }, "The navigation marker's shape. Default: the game's own mark (the size, color and distance options below are for the others)"),
     Slider(gps, "navSize", "Marker size", 16, 80, 2, "Size of the navigation marker"),
     Dropdown(gps, "navColor", "Marker color", ColorChoices({ { "title", "Default" } }), "Color of the navigation marker and its distance"),
@@ -299,7 +299,7 @@ local function Build()
   for _, option in ipairs({
     Dropdown(gps, "gpsStyle", "Arrow", {
       { "arrow", "Arrow" }, { "chevron", "Chevron" }, { "double", "Double chevron" },
-      { "triangle", "Triangle" }, { "needle", "Compass needle" }, { "dart", "Dart" },
+      { "triangle", "Triangle" }, { "needle", "Compass needle" }, { "dart", "Dart" }, { "sword", "Sword" },
     }, "The GPS arrow's shape"),
     Slider(gps, "gpsSize", "Arrow size", 24, 96, 2, "Size of the GPS arrow"),
     Dropdown(gps, "gpsColor", "Arrow color", ColorChoices({ { "title", "Default" } }), "Color of the GPS arrow"),
@@ -343,6 +343,11 @@ Core:OnChange(function (key)
     -- (with a name, that dungeon: /qm testcard deadmines)
     if input and input:lower():match("^%s*testcard") then
       Core.DungeonDemo(input:match("^%s*%S+%s*(.-)%s*$"))
+      return
+    end
+    -- /qm icons: the icon each dungeon's card gets
+    if input and input:lower():match("^%s*icons") then
+      Core.DungeonIconReport()
       return
     end
     -- /qm testanim: plays the new section animation now

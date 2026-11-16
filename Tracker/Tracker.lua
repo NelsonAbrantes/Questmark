@@ -333,8 +333,6 @@ local function UpdateTitleColor(block)
   end
   if block.hover then
     r, g, b = Core.Lighter(r, g, b, 0.4)
-  elseif entry.super then
-    r, g, b = Core.Lighter(r, g, b, 0.25)
   end
   block.title:SetTextColor(r, g, b)
 end

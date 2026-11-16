@@ -15,7 +15,32 @@ local UIParent = UIParent
 -- chosen (Quest GPS options page). Out of sight, at the screen's edge, a
 -- little arrow beside it points the way.
 
-local STYLES = { pin = "navPin", diamond = "navDiamond", ring = "navRing", flag = "navFlag", star = "navStar" }
+local STYLES = { pin = "navPin", diamond = "navDiamond", ring = "navRing", flag = "navFlag", star = "navStar",
+  quest = "navQuest", faction = "navDiamond" }
+
+-- "Faction crest": the game's own crest of your faction (from the game's
+-- files, in its own colors); a character with no faction yet gets the diamond
+local CRESTS = {
+  Alliance = { atlas = "MountJournalIcons-Alliance", file = "Interface\\Timer\\Alliance-Logo" },
+  Horde = { atlas = "MountJournalIcons-Horde", file = "Interface\\Timer\\Horde-Logo" },
+}
+
+-- The crest put on the texture: true if there was one
+local function Crest(texture)
+  local faction = _G.UnitFactionGroup and _G.UnitFactionGroup("player")
+  local crest = CRESTS[faction]
+  if not crest then return false end
+  -- (the battleground clock's crest first: solid, in full color. The mount
+  -- journal's is a faint watermark: only if the other isn't there)
+  texture:SetTexCoord(0, 1, 0, 1)
+  if texture:SetTexture(crest.file) ~= false and texture:GetTexture() then return true end
+  local Atlas = _G.C_Texture and _G.C_Texture.GetAtlasInfo
+  if Atlas and Atlas(crest.atlas) then
+    texture:SetAtlas(crest.atlas)
+    return true
+  end
+  return false
+end
 
 local function Profile() return Core.db.profile end
 
@@ -41,8 +66,16 @@ distance:SetPoint("TOP", shape, "BOTTOM", 0, -2)
 local function Look()
   local profile = Profile()
   local size = profile.navSize or 32
-  shape:SetTexture(Core.ASSETS..(STYLES[profile.navStyle] or STYLES.diamond))
-  shape:SetSize(size, size)
+  local crest = profile.navStyle == "faction" and Crest(shape)
+  if not crest then
+    -- (the whole image again: the game's crest cuts a part of a bigger one)
+    shape:SetTexture(Core.ASSETS..(STYLES[profile.navStyle] or STYLES.diamond))
+    shape:SetTexCoord(0, 1, 0, 1)
+  end
+  -- (the game's crest has room around it in its picture: drawn bigger, to
+  -- look as big as the other marks)
+  local drawn = crest and size * 1.5 or size
+  shape:SetSize(drawn, drawn)
   pointer:SetSize(size * 0.45, size * 0.45)
   -- (a pin stands on the place with its point; the others sit over it)
   shape:ClearAllPoints()
@@ -51,7 +84,8 @@ local function Look()
   font:SetFont("Fonts\\FRIZQT__.TTF", profile.navTextSize or 12, "OUTLINE")
   local r, g, b = Core:Color(profile.navColor)
   if not r then r, g, b = Core:TitleColor() end
-  shape:SetVertexColor(r, g, b)
+  -- (the crest keeps the game's colors; its little arrow and distance take the color)
+  if crest then shape:SetVertexColor(1, 1, 1) else shape:SetVertexColor(r, g, b) end
   pointer:SetVertexColor(r, g, b)
   distance:SetTextColor(r, g, b)
 end

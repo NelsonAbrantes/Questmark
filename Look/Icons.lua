@@ -240,4 +240,10 @@ function Core.ResetIcon(button)
   button.gftIcon:SetAlpha(1)
   button.gftOutline:SetSize(size, size)
   button.gftOutline:SetAlpha(1)
+  -- (and the light of the mouse over it, if it was there)
+  button.gftHover = nil
+  if button.gftHoverGlow then
+    button.gftHoverGlow:SetAlpha(0)
+    button.gftHoverGlow:Hide()
+  end
 end
