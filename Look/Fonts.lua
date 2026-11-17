@@ -12,12 +12,14 @@ local CreateFont = CreateFont
 -- change in the options reaches all of them at once.
 -- - header: section titles and the names of quests, achievements, recipes
 -- - line: objectives, criteria and reagents
--- - zone: the small zone names between quests
+-- - zone: small notes (the dungeon card's times, a bar's label)
+-- - zoneName: the zone names between quests, a little bigger than the lines
 
 local fonts = {
   header = CreateFont("QuestmarkHeaderFont"),
   line = CreateFont("QuestmarkLineFont"),
   zone = CreateFont("QuestmarkZoneFont"),
+  zoneName = CreateFont("QuestmarkZoneNameFont"),
   title = CreateFont("QuestmarkTitleFont"), -- the dungeon's name, bigger
 }
 Core.fonts = fonts
@@ -43,6 +45,7 @@ function Core:UpdateFonts()
     header = profile.headerFontSize,
     line = profile.lineFontSize,
     zone = self.ZoneFontSize(),
+    zoneName = profile.lineFontSize + 2,
     title = profile.headerFontSize + 4,
   }
   for key, font in pairs(fonts) do

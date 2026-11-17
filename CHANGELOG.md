@@ -2,6 +2,15 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.2.3 (beta)
+
+- Navigation marker: Quest mark, Faction crest and Sword styles
+- Navigation marker fades near the objective and hides in dungeons
+- Quest book: Page brightness option
+- Reward tooltips follow the mouse
+- Bigger zone names in the tracker
+- Fixes: marker blinking or showing with nothing followed, uneven zone lines
+
 ## 0.2.2 (beta)
 
 - Quest book search (the magnifying glass by the title)

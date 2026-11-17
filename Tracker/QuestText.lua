@@ -351,18 +351,36 @@ local function RewardButton(i)
   button.name:SetPoint("LEFT", button.icon, "RIGHT", 6, 0)
   button.name:SetPoint("RIGHT")
   button.name:SetMaxLines(2)
+  -- The tooltip follows the mouse, like the game's over the world. The
+  -- game's "at the mouse" only puts it there once (then it stayed in
+  -- place): moved here while the mouse is over the reward, only if it moved
+  local lastX, lastY
+  local function Follow()
+    local tooltip = _G.GameTooltip
+    local x, y = _G.GetCursorPosition()
+    if x == lastX and y == lastY then return end
+    lastX, lastY = x, y
+    local scale = tooltip:GetEffectiveScale()
+    tooltip:ClearAllPoints()
+    tooltip:SetPoint("BOTTOMLEFT", _G.UIParent, "BOTTOMLEFT", x / scale + 12, y / scale + 12)
+  end
   button:SetScript("OnEnter", function (self)
     local tooltip = _G.GameTooltip
-    -- (following the mouse, like the game's tooltips over the world)
-    tooltip:SetOwner(self, "ANCHOR_CURSOR")
+    tooltip:SetOwner(self, "ANCHOR_NONE")
     if self.kind == "currency" then
       pcall(tooltip.SetQuestLogCurrency, tooltip, "reward", self.index, selected)
     else
       pcall(tooltip.SetQuestLogItem, tooltip, self.kind, self.index, selected)
     end
+    lastX, lastY = nil, nil
+    Follow()
     tooltip:Show()
+    self:SetScript("OnUpdate", Follow)
   end)
-  button:SetScript("OnLeave", function () _G.GameTooltip:Hide() end)
+  button:SetScript("OnLeave", function (self)
+    self:SetScript("OnUpdate", nil)
+    _G.GameTooltip:Hide()
+  end)
   -- Like the game's rewards: Ctrl-click tries it on, Shift-click links it
   button:SetScript("OnClick", function (self)
     if self.kind == "currency" or not selected then return end

@@ -226,12 +226,18 @@ local zones = Pool(function ()
   -- (the label colors the icon itself)
   label.gftIcon = label.icon.gftIcon
   label.text = label:CreateFontString(nil, "OVERLAY")
-  label.text:SetFontObject(fonts.line)
+  label.text:SetFontObject(fonts.zoneName)
   label.text:SetPoint("LEFT", label.icon, "RIGHT", 3, 0)
   label.text:SetWordWrap(false)
   label.line = label:CreateTexture(nil, "ARTWORK")
   label.line:SetTexture(FLAT)
   Core.PixelHeight(label.line, 1)
+  -- (on whole screen pixels: the zones slide to fractions of one, and the
+  -- line was drawn 2 pixels thick on some, none on others)
+  if label.line.SetSnapToPixelGrid then
+    label.line:SetSnapToPixelGrid(true)
+    label.line:SetTexelSnappingBias(0)
+  end
   label.line:SetPoint("BOTTOMLEFT", label, "BOTTOMLEFT", 0, 0)
   label.line:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 0, 0)
   label:SetScript("OnClick", function (self) Core.SetZoneCollapsed(self.zone, not self.collapsed) end)
@@ -245,7 +251,7 @@ end)
 local function PlaceZone(entry, y, collapsed)
   local label = Acquire(zones, entry.key)
   label.zone, label.collapsed = entry.zone, collapsed
-  local height = math.max(ZONE_HEIGHT, Profile().lineFontSize + 4)
+  local height = math.max(ZONE_HEIGHT, Profile().lineFontSize + 6)
   Glide(label, y)
   label:SetSize(content:GetWidth(), height)
   Core.SetIcon(label.icon, collapsed and "expand" or "collapse")
