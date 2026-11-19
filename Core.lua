@@ -128,6 +128,7 @@ Core.defaults = {
     hideSectionHeaders = false, -- hide the section titles ("Quests"...)
 
     questCount = true,        -- "Quests 12/25" in the Quests title
+    turnInXP = true,          -- "+12,400 XP" in the Quests title: the quests ready to turn in
     completedObjectives = "dim", -- finished objectives: show or dim
     glassBars = true,         -- progress bars in the title color (off: the game's green)
     sectionAnimation = "glass", -- animations: glass or off
@@ -161,7 +162,7 @@ Core.defaults = {
     dungeonAlwaysShow = true, -- in dungeons and raids the tracker doesn't fade out       -- in dungeons and raids: time, bosses, experience and gold of the run
     completeSound = true,     -- a sound when an objective or quest is done
     questItemMarks = true,    -- quest items no longer needed: said in their tooltip, marked in Baganator
-    orcVoice = true,          -- quest ready to turn in: the orc peon's "Work complete!"
+    orcVoice = true,          -- quest ready to turn in: your faction's worker ("Work complete!" / "Job's done!")
     questLevels = false,      -- quest names with their level before them ("[12] ...")
     autoQuests = false,       -- quests taken and given back by themselves (Shift: not)
     bossLoot = "journal",     -- a boss clicked in the dungeon card: journal or atlasloot
@@ -173,8 +174,9 @@ Core.defaults = {
     gpsTextSize = 13,         -- the distance's size (the quest's name a little smaller)
     gpsUnits = "yards",       -- the distance in yards or meters
     gpsQuestName = true,      -- the quest's name under the distance
+    followNext = true,        -- turning in the quest followed follows the nearest one
     navMarker = false,        -- the navigation marker: a mark on the screen over the quest's place
-    navStyle = "game",        -- its shape: game (the game's own mark), diamond, pin, ring, flag or star
+    navStyle = "game",        -- its shape: game (the game's own mark), diamond, pin, ring, flag, star, quest, faction or class
     navSize = 32,             -- its size
     navColor = "title",       -- its color: "title" = Default, or one of Core.COLORS
     navTextSize = 12,         -- the distance's size

@@ -98,6 +98,11 @@ card.clock = card:CreateFontString(nil, "OVERLAY")
 card.clock:SetFontObject(fonts.title)
 card.clock:SetJustifyH("RIGHT")
 
+-- Under the clock: the dungeon's record ("Best 32:10"), or "New record!"
+card.best = card:CreateFontString(nil, "OVERLAY")
+card.best:SetFontObject(fonts.line)
+card.best:SetJustifyH("RIGHT")
+
 card.underline = card:CreateTexture(nil, "ARTWORK")
 card.underline:SetTexture(FLAT)
 Core.PixelHeight(card.underline, 1)
@@ -500,6 +505,16 @@ function Core.PlaceDungeonCard(entry, y, isNew)
   if whole and wing and whole ~= "" then name, subtitle = whole, wing end
   local titleSize = profile.headerFontSize + 4
   local headHeight = math.max(hasIcon and HEAD_ICON or 0, titleSize + (subtitle and profile.lineFontSize + 3 or 0)) + 2
+  local bestText
+  if entry.finished and entry.newRecord then
+    bestText = "New record!"
+    card.best:SetTextColor(1, 0.82, 0.2)
+  elseif entry.best then
+    bestText = "Best "..Clock(entry.best)
+    card.best:SetTextColor(0.75, 0.76, 0.80)
+  end
+  local clockHeight = titleSize + (bestText and profile.lineFontSize + 3 or 0)
+  headHeight = math.max(headHeight, clockHeight + 2)
 
   card.title:ClearAllPoints()
   card.title:SetPoint("TOPLEFT", card, "TOPLEFT", left, subtitle and 0 or -(headHeight - titleSize) / 2)
@@ -512,9 +527,14 @@ function Core.PlaceDungeonCard(entry, y, isNew)
   card.subtitle:SetShown(subtitle ~= nil)
 
   card.clock:ClearAllPoints()
-  card.clock:SetPoint("RIGHT", card, "TOPRIGHT", 0, -headHeight / 2)
+  card.clock:SetPoint("TOPRIGHT", card, "TOPRIGHT", 0, -(headHeight - clockHeight) / 2)
   Core.SetDungeonClock(entry)
-  local room = math.max(40, width - left - (card.clock:GetStringWidth() or 40) - 12)
+  card.best:ClearAllPoints()
+  card.best:SetPoint("TOPRIGHT", card.clock, "BOTTOMRIGHT", 0, -2)
+  card.best:SetText(bestText or "")
+  card.best:SetShown(bestText ~= nil)
+  local clockWidth = math.max(card.clock:GetStringWidth() or 40, bestText and card.best:GetStringWidth() or 0)
+  local room = math.max(40, width - left - clockWidth - 12)
   card.title:SetWidth(room)
   card.subtitle:SetWidth(room)
   -- A name too long for the room: its letters a little smaller, down to the

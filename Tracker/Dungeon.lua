@@ -99,19 +99,78 @@ local function JournalDungeon(name)
   return type(dungeon) == "table" and dungeon or nil, journal, key
 end
 
+-- The creatures a boss of the journal addon is made of, each to be killed
+-- before it's done (nil: just the one):
+-- - a group (the Sunken Temple's "Altar Bosses": its six trolls, which the
+--   tracker shows only as the group)
+-- - two fought together (killWith: "Dreamscythe & Weaver")
+local function JournalParts(boss, byNpc)
+  local function Names(list)
+    local names = {}
+    for _, value in ipairs(type(list) == "table" and list or {}) do
+      if type(value) == "string" then names[#names + 1] = value end
+    end
+    return #names > 0 and names or nil
+  end
+  local parts = {}
+  if type(boss.children) == "table" then
+    for _, id in ipairs(boss.children) do
+      id = tonumber(id)
+      local child = id and byNpc[id]
+      if id then
+        table.insert(parts, { npcID = id, name = child and child.name, aliases = child and Names(child.aliases) })
+      end
+    end
+  elseif type(boss.killWith) == "table" then
+    table.insert(parts, { npcID = tonumber(boss.npcID), aliases = Names(boss.aliases) })
+    for _, partner in ipairs(boss.killWith) do
+      if type(partner) == "table" then
+        local id
+        for _, value in ipairs(partner) do
+          if type(value) == "number" then id = value end
+        end
+        local names = Names(partner)
+        table.insert(parts, { npcID = id, name = names and names[1], aliases = names })
+      end
+    end
+  end
+  return #parts > 1 and parts or nil
+end
+
+-- The kills the game reports for a dungeon of the journal addon (boss name
+-- -> its encounter IDs)
+local function JournalEncounters(journal, key)
+  local encounters = {}
+  local list = type(journal.RUNLOG_ENCOUNTERS) == "table" and journal.RUNLOG_ENCOUNTERS or {}
+  for id, info in pairs(list) do
+    if type(id) == "number" and type(info) == "table" and info[1] == key and type(info[2]) == "string" then
+      encounters[info[2]] = encounters[info[2]] or {}
+      encounters[info[2]][id] = true
+    end
+  end
+  return encounters
+end
+
 local function JournalAddon(name)
-  local dungeon, journal = JournalDungeon(name)
+  local dungeon, journal, key = JournalDungeon(name)
   if not dungeon or type(dungeon.bosses) ~= "table" then return nil end
   -- Its pictures of the bosses (creature -> what the game draws for it)
   local displays = type(journal.STATIC_DISPLAY_IDS) == "table" and journal.STATIC_DISPLAY_IDS or {}
+  local encounters = JournalEncounters(journal, key)
+  local byNpc = {}
+  for _, boss in ipairs(dungeon.bosses) do
+    if type(boss) == "table" and tonumber(boss.npcID) then byNpc[tonumber(boss.npcID)] = boss end
+  end
   local bosses = {}
   for _, boss in ipairs(dungeon.bosses) do
-    if type(boss) == "table" and type(boss.name) == "string" and not boss.trash then
+    -- (a group's members show only as the group)
+    if type(boss) == "table" and type(boss.name) == "string" and not boss.trash and not boss.trackerHidden then
       local display = displays[boss.portraitNpcID or boss.npcID] or boss.displayID
       table.insert(bosses, {
         name = boss.name, npcID = tonumber(boss.npcID), display = tonumber(display),
         aliases = type(boss.aliases) == "table" and boss.aliases or nil,
         rare = boss.rare and true or nil,
+        parts = JournalParts(boss, byNpc), ids = encounters[boss.name],
       })
     end
   end
@@ -431,6 +490,27 @@ local function CountXP()
   run.level, run.lastXP, run.lastMax = level, xp, max
 end
 
+-- The fastest run of each dungeon (dungeon name -> seconds, for all your
+-- characters)
+local function Records()
+  Core.db.global.dungeonRecords = Core.db.global.dungeonRecords or {}
+  return Core.db.global.dungeonRecords
+end
+
+-- The run is done: its time kept if it's the dungeon's fastest (run.best:
+-- the record it had to beat)
+local function Finish(run)
+  if run.finished then return end
+  run.finished = time()
+  if not run.name then return end
+  local took, records = run.finished - run.start, Records()
+  run.best = records[run.name]
+  if not run.best or took < run.best then
+    records[run.name] = took
+    run.newRecord = true
+  end
+end
+
 local function AllKilled(run)
   if not run.bosses then return false end
   for _, boss in ipairs(run.bosses) do
@@ -439,28 +519,49 @@ local function AllKilled(run)
   return true
 end
 
--- The boss of the list that a kill is (by its ID, name or other names)
+-- True if a boss (or one of the creatures it's made of) is that creature
+local function Is(thing, name, npcID)
+  if npcID and thing.npcID == npcID then return true end
+  if not name then return false end
+  if thing.name == name then return true end
+  for _, alias in ipairs(thing.aliases or {}) do
+    if alias == name then return true end
+  end
+  return false
+end
+
+-- The boss of the list that a kill is (by its ID, name or other names), and
+-- which of the creatures it's made of (nil: the boss itself)
 local function FindBoss(run, name, encounterID, npcID)
   for _, boss in ipairs(run.bosses or {}) do
-    if (encounterID and boss.id == encounterID) or (npcID and boss.npcID == npcID)
-      or (name and boss.name == name) then
-      return boss
+    if encounterID and (boss.id == encounterID or (boss.ids and boss.ids[encounterID])) then return boss end
+    for i, part in ipairs(boss.parts or {}) do
+      if Is(part, name, npcID) then return boss, i end
     end
-    for _, alias in ipairs(boss.aliases or {}) do
-      if name and alias == name then return boss end
-    end
+    if Is(boss, name, npcID) then return boss end
   end
 end
 
 -- A boss died: checked in the list (and learned for next time when the
--- game said it was a boss)
+-- game said it was a boss). A boss made of several creatures is checked
+-- when all of them died, or when the game says its fight is won.
 local function Killed(name, encounterID, npcID, fromEncounter)
   local run = Run()
   if not run then return end
-  local boss = FindBoss(run, name, encounterID, npcID)
+  local boss, part = FindBoss(run, name, encounterID, npcID)
   if boss then
     if fromEncounter then Learn(run.name, boss.name) end
     if run.killed[boss.name] then return end
+    if part and not fromEncounter then
+      run.killedParts = run.killedParts or {}
+      local dead = run.killedParts[boss.name] or {}
+      run.killedParts[boss.name] = dead
+      if dead[part] then return end
+      dead[part] = true
+      for i in ipairs(boss.parts) do
+        if not dead[i] then return end
+      end
+    end
     run.killed[boss.name] = true
     run.killedAt = run.killedAt or {}
     run.killedAt[boss.name] = time() - run.start
@@ -475,25 +576,50 @@ local function Killed(name, encounterID, npcID, fromEncounter)
   else
     return
   end
-  if AllKilled(run) and not run.finished then run.finished = time() end
+  if AllKilled(run) then Finish(run) end
   Core.Refresh()
 end
 
 -- The game doesn't report every boss kill in the dungeons WoW: Forever added,
 -- and addons may not read the combat log here. So, once a second: is one of
 -- the list's bosses lying dead as your target, a group member's target or
--- one of the encounter's bosses?
-local WATCHED = { "target", "focus", "boss1", "boss2", "boss3", "boss4", "boss5",
+-- one of the encounter's bosses? In combat the game hides who a creature is,
+-- so one that dies while the fight goes on (a boss's add, a pack's leader)
+-- is looked for again when the fight is over, as the corpse under the mouse,
+-- and as the corpse looted (below).
+local WATCHED = { "target", "focus", "mouseover", "boss1", "boss2", "boss3", "boss4", "boss5",
   "party1target", "party2target", "party3target", "party4target" }
+
+-- The creature a GUID is (Creature-0-server-map-copy-npc-spawn), nil if
+-- it can't be read or isn't one
+local function NpcID(guid)
+  if not (Core.Readable(guid) and type(guid) == "string") then return nil end
+  local kind, _, _, _, _, npc = strsplit("-", guid)
+  if kind ~= "Creature" and kind ~= "Vehicle" then return nil end
+  return tonumber(npc)
+end
 
 function LookForDeadBosses()
   for _, unit in ipairs(WATCHED) do
     if _G.UnitExists(unit) and _G.UnitIsDead(unit) and not _G.UnitIsPlayer(unit) then
-      local guid = _G.UnitGUID(unit)
-      if Core.Readable(guid) and type(guid) == "string" then
-        local npcID = tonumber((select(6, strsplit("-", guid))))
-        local name = _G.UnitName(unit)
-        if npcID then Killed(Core.Readable(name) and name or nil, nil, npcID, false) end
+      local npcID = NpcID(_G.UnitGUID(unit))
+      local name = _G.UnitName(unit)
+      if npcID then Killed(Core.Readable(name) and name or nil, nil, npcID, false) end
+    end
+  end
+end
+
+-- The corpses whose loot is open
+local function LookInLoot()
+  local Count, Source = _G.GetNumLootItems, _G.GetLootSourceInfo
+  if not (Count and Source) then return end
+  for slot = 1, Count() or 0 do
+    -- (guid, how many, guid, how many...: an area loot has several corpses)
+    local sources = { pcall(Source, slot) }
+    if sources[1] then
+      for i = 2, #sources, 2 do
+        local npcID = NpcID(sources[i])
+        if npcID then Killed(nil, nil, npcID, false) end
       end
     end
   end
@@ -544,7 +670,10 @@ local function LookForFaces(run)
     if _G.UnitExists(unit) and not _G.UnitIsPlayer(unit) then
       local name = _G.UnitName(unit)
       name = Core.Readable(name) and name or nil
-      local boss = name and FindBoss(run, name)
+      local boss, part = nil, nil
+      if name then boss, part = FindBoss(run, name) end
+      -- (not a boss's partner or a group's member: the boss has its own face)
+      if part then boss = nil end
       -- (the encounter's bosses too, when the list doesn't know them yet)
       local key = boss and boss.name or (name and unit:find("^boss") and name)
       if key and not faces[key] then
@@ -800,6 +929,9 @@ function Core.DungeonSection()
     copper = demo and demo.copper or math.max(0, GetMoney() - run.money - (run.questMoney or 0)),
     deaths = run.deaths, deathsBy = run.deathsBy, bosses = {}, lines = {},
     icon = run.icon, iconGray = run.iconGray, location = run.location, levels = run.levels,
+    -- (the record to beat, and if this run beat it)
+    best = not demo and (run.finished and run.best or (run.name and Records()[run.name])) or nil,
+    newRecord = not demo and run.newRecord or nil,
   }
   if not AtMaxLevel() then
     entry.xp, entry.xpMax = demo and run.xp or math.max(0, run.xp - (run.questXP or 0)), UnitXPMax("player")
@@ -842,6 +974,13 @@ events:SetScript("OnEvent", function (_, event, ...)
   elseif event == "BOSS_KILL" then
     local encounterID, name = ...
     if Core.Readable(name) and name then Killed(name, encounterID, nil, true) end
+    return
+  elseif event == "PLAYER_REGEN_ENABLED" then
+    -- (the fight's over: who died in it can be read now)
+    if run.bosses then LookForDeadBosses() end
+    return
+  elseif event == "LOOT_OPENED" or event == "LOOT_READY" then
+    if run.bosses then LookInLoot() end
     return
   elseif event == "QUEST_TURNED_IN" then
     -- (a quest's experience and gold don't count: only the fighting's)
@@ -889,6 +1028,7 @@ Core:OnChange(function (key)
     for _, event in ipairs({
       "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_END", "BOSS_KILL",
       "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY", "QUEST_TURNED_IN",
+      "PLAYER_REGEN_ENABLED", "LOOT_OPENED", "LOOT_READY",
     }) do
       pcall(events.RegisterEvent, events, event)
     end

@@ -16,7 +16,7 @@ local UIParent = UIParent
 -- little arrow beside it points the way.
 
 local STYLES = { pin = "navPin", diamond = "navDiamond", ring = "navRing", flag = "navFlag", star = "navStar",
-  quest = "navQuest", faction = "navDiamond" }
+  quest = "navQuest", faction = "navDiamond", class = "navDiamond" }
 
 -- "Faction crest": the game's own crest of your faction (from the game's
 -- files, in its own colors); a character with no faction yet gets the diamond
@@ -49,6 +49,41 @@ local function Crest(texture)
   return false
 end
 
+-- "Class icon": the game's icon of your class without a background (the
+-- one of the battlegrounds' score board), in its own colors, its little
+-- arrow in your class's color; a class without one gets the diamond
+local CLASS_FILE = "Interface\\WorldStateFrame\\Icons-Classes"
+-- (where each class is on it, if the game doesn't say: CLASS_ICON_TCOORDS)
+local CLASS_COORDS = {
+  WARRIOR = { 0, 0.25, 0, 0.25 }, MAGE = { 0.25, 0.49609375, 0, 0.25 },
+  ROGUE = { 0.49609375, 0.7421875, 0, 0.25 }, DRUID = { 0.7421875, 0.98828125, 0, 0.25 },
+  HUNTER = { 0, 0.25, 0.25, 0.5 }, SHAMAN = { 0.25, 0.49609375, 0.25, 0.5 },
+  PRIEST = { 0.49609375, 0.7421875, 0.25, 0.5 }, WARLOCK = { 0.7421875, 0.98828125, 0.25, 0.5 },
+  PALADIN = { 0, 0.25, 0.5, 0.75 },
+}
+
+local function PlayerClass()
+  local _, class = _G.UnitClass("player")
+  return class
+end
+
+local function ClassColor()
+  local class = PlayerClass()
+  local color = class and _G.C_ClassColor and _G.C_ClassColor.GetClassColor and _G.C_ClassColor.GetClassColor(class)
+  color = color or (class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class])
+  if color then return color.r, color.g, color.b end
+end
+
+-- The class icon put on the texture: true if there was one
+local function ClassIcon(texture)
+  local class = PlayerClass()
+  local coords = class and (_G.CLASS_ICON_TCOORDS and _G.CLASS_ICON_TCOORDS[class] or CLASS_COORDS[class])
+  if not coords then return false end
+  if texture:SetTexture(CLASS_FILE) == false or not texture:GetTexture() then return false end
+  texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+  return true
+end
+
 local function Profile() return Core.db.profile end
 
 -- At the place: the mark see-through, from FAR yards (not yet) to NEAR
@@ -78,7 +113,8 @@ local function Look()
   local profile = Profile()
   local size = profile.navSize or 32
   local crest = profile.navStyle == "faction" and Crest(shape)
-  if not crest then
+  local classIcon = profile.navStyle == "class" and ClassIcon(shape)
+  if not (crest or classIcon) then
     -- (the whole image again: the game's crest cuts a part of a bigger one)
     shape:SetTexture(Core.ASSETS..(STYLES[profile.navStyle] or STYLES.diamond))
     shape:SetTexCoord(0, 1, 0, 1)
@@ -100,6 +136,10 @@ local function Look()
   if crest then
     shape:SetVertexColor(1, 1, 1)
     pointer:SetVertexColor(CrestColor())
+  elseif classIcon then
+    local cr, cg, cb = ClassColor()
+    shape:SetVertexColor(1, 1, 1)
+    pointer:SetVertexColor(cr or r, cg or g, cb or b)
   else
     shape:SetVertexColor(r, g, b)
     pointer:SetVertexColor(r, g, b)
@@ -131,6 +171,55 @@ local function HideGameMark(on)
   settingAlpha = true
   game:SetAlpha(on and 0 or gameAlpha)
   settingAlpha = false
+end
+
+-- How visible ours is, the way the game has its own ("Default"):
+-- - behind something (a hill, a tree, a wall), see-through; in sight, or at
+--   the screen's edge, whole
+-- - under the mouse, fainter toward its middle (out of the way of a click)
+-- - from one to the other smoothly, not at once
+-- and, ours only, see-through close to the place (the mark in the way of
+-- what's there)
+local OCCLUDED_ALPHA = 0.6 -- the game's
+
+local function NearAlpha(yards)
+  if yards and yards < FAR then
+    return NEAR_ALPHA + (1 - NEAR_ALPHA) * math.max(0, yards - NEAR) / (FAR - NEAR)
+  end
+  return 1
+end
+
+-- (asked to the game's mark first: how visible it wants itself, before its
+-- fading under the mouse; it knows when the place is behind something)
+local function SightAlpha(Nav)
+  local game = _G.SuperTrackedFrame
+  if game and type(game.GetTargetAlphaBaseValue) == "function" then
+    local ok, alpha = pcall(game.GetTargetAlphaBaseValue, game)
+    if ok and type(alpha) == "number" then return math.max(0, math.min(1, alpha)) end
+  end
+  if Nav.WasClampedToScreen and Nav.WasClampedToScreen() then return 1 end
+  local states = _G.Enum and _G.Enum.NavigationState
+  local state = Nav.GetTargetState and Nav.GetTargetState()
+  if states and state == states.Occluded then return OCCLUDED_ALPHA end
+  return 1
+end
+
+local function MouseAlpha()
+  if not shape:IsMouseOver() then return 1 end
+  local x, y = _G.GetCursorPosition()
+  local scale = shape:GetEffectiveScale()
+  local cx, cy = shape:GetCenter()
+  if not (x and cx) then return 1 end
+  local dx, dy = x / scale - cx, y / scale - cy
+  local radius = math.max(shape:GetWidth(), shape:GetHeight())
+  local reach = radius * radius * 2
+  if reach <= 0 then return 1 end
+  return math.min(1, (dx * dx + dy * dy) / reach)
+end
+
+local function Toward(current, target)
+  if _G.FrameDeltaLerp then return _G.FrameDeltaLerp(current, target, 0.1) end
+  return current + (target - current) * 0.1
 end
 
 -- Something to lead to: the game shows its frame even with nothing followed
@@ -188,12 +277,8 @@ marker:SetScript("OnUpdate", function ()
     pointer:Hide()
   end
   local yards = Nav and Nav.GetDistance and Nav.GetDistance()
-  -- (close to the place, see-through: the mark in the way of what's there)
-  local alpha = 1
-  if yards and yards < FAR then
-    alpha = NEAR_ALPHA + (1 - NEAR_ALPHA) * math.max(0, yards - NEAR) / (FAR - NEAR)
-  end
-  if math.abs(marker:GetAlpha() - alpha) > 0.01 then marker:SetAlpha(alpha) end
+  local alpha = Toward(marker:GetAlpha(), SightAlpha(Nav or {}) * MouseAlpha() * NearAlpha(yards))
+  if math.abs(marker:GetAlpha() - alpha) > 0.001 then marker:SetAlpha(alpha) end
   if yards and yards > 0 then
     local meters = Profile().navUnits == "meters"
     distance:SetText(("%d %s"):format(math.floor(meters and yards * 0.9144 or yards), meters and "m" or "yd"))

@@ -295,6 +295,16 @@ local function QuestList()
       for _, quest in ipairs(one.quests) do quests[#quests + 1] = quest end
     end
   end
+  -- The quests turned in, last, under their own zone ("Completed", closed
+  -- at first): see Behavior/History.lua
+  local history = Core.QuestHistory and Core.QuestHistory() or {}
+  if #history > 0 then
+    local header = { header = true, title = Core.HISTORY_KEY, label = "Completed", quests = #history }
+    quests[#quests + 1] = header
+    for _, done in ipairs(history) do
+      quests[#quests + 1] = { history = done, title = done.title or "", level = done.level, zone = header, tags = "" }
+    end
+  end
   return quests, n
 end
 
@@ -751,18 +761,25 @@ local function Row(i)
     self.underline:Show()
     self.text:SetTextColor(RED[1], RED[2], RED[3])
     if self.zone then self.toggle:SetVertexColor(RED[1], RED[2], RED[3]) end
+    if self.history and Core.HistoryTooltip then Core.HistoryTooltip(self, self.history) end
   end)
   row:SetScript("OnLeave", function (self)
     self.underline:Hide()
     -- (the quest open stays red)
     self.text:SetTextColor(unpack(self.open and RED or self.color))
     self.toggle:SetVertexColor(unpack(ZONE()))
+    if self.history then _G.GameTooltip:Hide() end
   end)
   row:SetScript("OnClick", function (self, button)
     if self.zone then
       -- A zone: opens or closes
       local collapsed = Collapsed()
-      collapsed[self.zone] = not collapsed[self.zone] or nil
+      if self.zone == Core.HISTORY_KEY then
+        -- (closed at first: open is kept as false)
+        collapsed[self.zone] = not collapsed[self.zone]
+      else
+        collapsed[self.zone] = not collapsed[self.zone] or nil
+      end
       FillList()
     elseif self.questID then
       -- Shift-click: its link in the chat box being written, as in the game
@@ -1219,6 +1236,53 @@ local function BuildRight()
   chooseText:SetFontObject(fonts.Small)
   chooseText:SetTextColor(unpack(FADED))
   chooseText:SetText("Choose one:")
+
+  -- Your note on the quest, last on the page (kept per character until the
+  -- quest is turned in, see Behavior/History.lua)
+  local note = {}
+  parts.note = note
+  note.heading = textContent:CreateFontString(nil, "ARTWORK")
+  note.heading:SetFontObject(fonts.Heading)
+  note.heading:SetTextColor(unpack(RED))
+  note.heading:SetText("Notes")
+  note.box = CreateFrame("EditBox", nil, textContent)
+  note.box:SetMultiLine(true)
+  note.box:SetAutoFocus(false)
+  note.box:SetFontObject(fonts.Text)
+  note.box:SetTextColor(unpack(INK))
+  note.box:SetWidth(TEXT_W)
+  note.box:SetMaxLetters(500)
+  note.hint = note.box:CreateFontString(nil, "ARTWORK")
+  note.hint:SetFontObject(fonts.Small)
+  note.hint:SetTextColor(unpack(FADED))
+  note.hint:SetPoint("TOPLEFT")
+  note.hint:SetText("Click to write a note")
+  -- (the writing's height, measured: an edit box doesn't say it)
+  note.measure = textContent:CreateFontString(nil, "ARTWORK")
+  note.measure:SetFontObject(fonts.Text)
+  note.measure:SetWidth(TEXT_W)
+  note.measure:SetAlpha(0)
+  function note.Fit()
+    local text = note.box:GetText() or ""
+    if text == "" or text:sub(-1) == "\n" then text = text.." " end
+    note.measure:SetText(text)
+    local height = math.max(note.measure:GetStringHeight() or 0, note.hint:GetStringHeight() or 0, 12)
+    note.box:SetHeight(height)
+    return height
+  end
+  note.box:SetScript("OnTextChanged", function (self, byUser)
+    local text = self:GetText() or ""
+    note.hint:SetShown(text == "" and not self:HasFocus())
+    if byUser and note.questID then Core.QuestNotes()[note.questID] = text ~= "" and text or nil end
+    if note.top then
+      textContent:SetHeight(math.max(1, note.top + note.Fit()))
+      UpdateFades()
+    end
+  end)
+  note.box:SetScript("OnEditFocusGained", function () note.hint:Hide() end)
+  note.box:SetScript("OnEditFocusLost", function (self) note.hint:SetShown((self:GetText() or "") == "") end)
+  note.box:SetScript("OnEscapePressed", function (self) self:ClearFocus() end)
+  book:HookScript("OnHide", function () note.box:ClearFocus() end)
 
   hint = rightContent:CreateFontString(nil, "ARTWORK")
   hint:SetFontObject(fonts.Heading)
@@ -1803,7 +1867,7 @@ local function Searched(quests, query)
   for _, item in ipairs(quests) do
     if item.header then
       zone, zoneIn = item, false
-    else
+    elseif not item.history then
       local words = { item.title or "", item.zone and item.zone.title or "" }
       for _, objective in ipairs(C_QuestLog.GetQuestObjectives(item.questID) or {}) do
         words[#words + 1] = objective.text or ""
@@ -1836,6 +1900,7 @@ function FillList()
   local at = list:GetVerticalScroll()
   for _, row in ipairs(rows) do row:Hide() end
   local collapsed = Collapsed()
+  if collapsed[Core.HISTORY_KEY] == nil then collapsed[Core.HISTORY_KEY] = true end
 
   local width = listContent:GetWidth()
   local y, i = 0, 0
@@ -1847,6 +1912,7 @@ function FillList()
       -- (a little more room above each zone, but the first)
       if item.header and i > 1 then y = y + GAP - ROW_GAP end
       row.questID = item.questID
+      row.history = item.history
       row.zone = item.header and item.title or nil
       row.text:SetFontObject(item.header and fonts.ListZone or fonts.List)
       -- (the game's colors, with a thin black edge to read on the paper)
@@ -1857,7 +1923,7 @@ function FillList()
         local closed = not query and collapsed[item.title]
         row.color = ZONE()
         row.toggle:SetVertexColor(unpack(row.color))
-        row.text:SetText(item.title)
+        row.text:SetText(item.label or item.title)
         -- (and how many quests it has, between brackets after it)
         row.count:SetText("("..item.quests..")")
         row.count:ClearAllPoints()
@@ -1870,16 +1936,23 @@ function FillList()
       else
         row.toggle:Hide()
         row.count:Hide()
-        -- (its difficulty's color; done: the game's "?" to give it back after it)
-        row.color = DifficultyInk(item.questID, item.level)
-        local text = Core.QuestName(item.title, item.level)
-        if item.done then
-          -- (the game sizes atlas icons with the letters: the same number fits
-          -- any text size)
-          text = Atlas(MARK_DONE) and ("%s |A:%s:%d:%d|a"):format(text, MARK_DONE, DONE_MARK, DONE_MARK) or text
+        if item.history then
+          -- (turned in: faded, with the day)
+          row.color = FADED
+          local when = item.history.at and date("%d %b", item.history.at)
+          row.text:SetText(when and ("%s  %s%s|r"):format(item.title, FADED_HEX, when) or item.title)
+        else
+          -- (its difficulty's color; done: the game's "?" to give it back after it)
+          row.color = DifficultyInk(item.questID, item.level)
+          local text = Core.QuestName(item.title, item.level)
+          if item.done then
+            -- (the game sizes atlas icons with the letters: the same number fits
+            -- any text size)
+            text = Atlas(MARK_DONE) and ("%s |A:%s:%d:%d|a"):format(text, MARK_DONE, DONE_MARK, DONE_MARK) or text
+          end
+          if item.tags ~= "" then text = text.."  "..FADED_HEX..item.tags.."|r" end
+          row.text:SetText(text)
         end
-        if item.tags ~= "" then text = text.."  "..FADED_HEX..item.tags.."|r" end
-        row.text:SetText(text)
         row.text:SetPoint("TOPLEFT")
         row.text:SetWidth(width - indent)
       end
@@ -1909,9 +1982,9 @@ function FillList()
       y = y + row:GetHeight() + ROW_GAP
     end
   end
-  if n == 0 or (query and shownCount == 0) then
+  if i == 0 then
     local row = Row(1)
-    row.questID, row.zone = nil, nil
+    row.questID, row.zone, row.history = nil, nil, nil
     row.color = FADED
     row.toggle:Hide()
     row.count:Hide()
@@ -2042,6 +2115,22 @@ function FillText(questID, keep)
     end
     y = y + GAP
   end
+
+  -- Your note, last
+  local note = parts.note
+  note.questID = nil -- (not saved while it's filled)
+  note.box:ClearFocus()
+  note.heading:ClearAllPoints()
+  note.heading:SetPoint("TOPLEFT", 0, -y)
+  y = y + note.heading:GetStringHeight() + 4
+  note.box:ClearAllPoints()
+  note.box:SetPoint("TOPLEFT", 0, -y)
+  note.top = nil
+  note.box:SetText(Core.QuestNotes and Core.QuestNotes()[questID] or "")
+  note.hint:SetShown(note.box:GetText() == "")
+  note.top = y
+  note.questID = questID
+  y = y + note.Fit() + GAP
 
   textContent:SetHeight(math.max(1, y - GAP))
   if keep then

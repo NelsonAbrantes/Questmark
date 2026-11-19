@@ -43,6 +43,8 @@ Behavior\Sounds.lua
 Behavior\ZoneFilter.lua
 Behavior\QuestItems.lua
 Behavior\AutoQuests.lua
+Behavior\FollowNext.lua
+Behavior\History.lua
 Behavior\QuestieChoice.lua
 Animations\Animations.lua
 Animations\Dust.lua

@@ -20,6 +20,15 @@ local wipe = wipe
 
 -- The orc peon's "Work complete!" (Options: Orc voice on quest complete)
 local ORC_VOICE = 558132 -- Sound/Creature/Peon/PeonBuildingComplete1.ogg
+-- The human peasant's "Job's done!", for the Alliance (the game doesn't
+-- have it: the addon's own file; without it, the orc says it)
+local HUMAN_VOICE = Core.ASSETS.."jobsDone.ogg"
+
+-- The worker of your faction says it
+local function Voice()
+  if _G.UnitFactionGroup("player") == "Alliance" and PlaySoundFile(HUMAN_VOICE) then return end
+  PlaySoundFile(ORC_VOICE)
+end
 
 -- How the quest log was, and how it is now: questID -> finished objectives,
 -- and questID -> ready to turn in. Two sets of tables, swapped and reused on
@@ -74,7 +83,7 @@ local function Check()
     end
     -- One sound at a time: a finished quest wins over its last objective
     if questDone and Core.db.profile.orcVoice then
-      PlaySoundFile(ORC_VOICE)
+      Voice()
     elseif questDone then
       Play(SOUNDKIT and SOUNDKIT.IG_QUEST_LIST_COMPLETE)
     elseif objectiveDone then

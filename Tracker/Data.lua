@@ -304,6 +304,20 @@ local function QuestCount()
   return quests, max
 end
 
+-- The experience of the quests ready to turn in (all of the quest log, not
+-- only the tracked ones): 0 with none, or at the top level
+local function TurnInXP()
+  if not (C_QuestLog.GetNumQuestLogEntries and _G.GetQuestLogRewardXP) then return 0 end
+  local xp = 0
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    if info and not info.isHeader and info.questID and C_QuestLog.IsComplete(info.questID) then
+      xp = xp + (tonumber((_G.GetQuestLogRewardXP(info.questID))) or 0)
+    end
+  end
+  return xp
+end
+
 ---
 -- The quests section: its title and entries, in order. With "Group quests
 -- by zone", each zone's name comes before its quests ("zone" entries) and
@@ -367,6 +381,13 @@ function Core.QuestSection()
   if profile.questCount then
     local count, max = QuestCount()
     if count then title = ("%s  %d/%d"):format(title, count, max) end
+  end
+  if profile.turnInXP then
+    local xp = TurnInXP()
+    if xp > 0 then
+      local Big = _G.BreakUpLargeNumbers
+      title = ("%s  |cff8fd18f+%s XP|r"):format(title, Big and Big(xp) or tostring(xp))
+    end
   end
   local section = { key = "quests", title = title, entries = {}, count = #quests }
   if #quests == 0 then return section end

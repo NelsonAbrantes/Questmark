@@ -212,6 +212,7 @@ local function Build()
   Checkbox(category, "hideMainHeader", "Hide \"Objectives\"", "Hide the tracker's main title and its minimize button")
   Checkbox(category, "hideSectionHeaders", "Hide section titles", "Hide the section titles (\"Quests\", \"Achievements\"...) and their minimize buttons")
   Checkbox(category, "questCount", "Quest count", "Show in the Quests title how many quests you have and how many fit in the quest log, like \"Quests  12/25\"")
+  Checkbox(category, "turnInXP", "XP to turn in", "Show in the Quests title the experience the quests ready to turn in give, like \"+12,400 XP\"")
 
   Header(layout, "Animations")
   Dropdown(category, "sectionAnimation", "Animations", {
@@ -253,7 +254,7 @@ local function Build()
   }, "The addon a click on a boss in the dungeon card opens on that boss's loot (if it isn't installed, the other one)")
   Checkbox(category, "questItemMarks", "Quest items no longer needed", "Quest items left in your bags after their quest say so in their tooltip. With Baganator, a red cross can show on them too: turn on \"Questmark: quest item no longer needed\" in its Corner icons")
   Checkbox(category, "completeSound", "Sound on complete", "A discreet sound when a quest objective is done, and another when a quest is ready to turn in")
-  Checkbox(category, "orcVoice", "Orc voice on quest complete", "When a quest is ready to turn in, an orc peon says \"Work complete!\" instead of the usual sound. Needs Sound on complete")
+  Checkbox(category, "orcVoice", "Worker voice on quest complete", "When a quest is ready to turn in, a worker of your faction speaks instead of the usual sound: the orc peon's \"Work complete!\" for the Horde, the human peasant's \"Job's done!\" for the Alliance. Needs Sound on complete")
   Checkbox(category, "questLevels", "Quest levels", "Each quest's level before its name, in the tracker and the quest book's list: [12] The Defias Brotherhood")
   Checkbox(category, "autoQuests", "Accept and turn in quests", "Talking to someone accepts the quests they offer and turns in the ones ready. Not when you must choose a reward or a quest asks for money. Hold Shift to do it yourself")
 
@@ -284,7 +285,7 @@ local function Build()
   local function NavOn() return Profile().navMarker end
   for _, option in ipairs({
     Dropdown(gps, "navStyle", "Marker", {
-      { "game", "Default" }, { "diamond", "Diamond" }, { "pin", "Map pin" }, { "ring", "Ring" }, { "flag", "Flag" }, { "star", "Star" }, { "quest", "Quest mark" }, { "faction", "Faction crest" },
+      { "game", "Default" }, { "diamond", "Diamond" }, { "pin", "Map pin" }, { "ring", "Ring" }, { "flag", "Flag" }, { "star", "Star" }, { "quest", "Quest mark" }, { "faction", "Faction crest" }, { "class", "Class icon" },
     }, "The navigation marker's shape. Default: the game's own mark (the size, color and distance options below are for the others)"),
     Slider(gps, "navSize", "Marker size", 16, 80, 2, "Size of the navigation marker"),
     Dropdown(gps, "navColor", "Marker color", ColorChoices({ { "title", "Default" } }), "Color of the navigation marker and its distance"),
@@ -310,6 +311,8 @@ local function Build()
   }) do
     if option and gpsOn and option.SetParentInitializer then option:SetParentInitializer(gpsOn, GpsOn) end
   end
+  Header(gpsLayout, "Following")
+  Checkbox(gps, "followNext", "Follow the next quest", "When you turn in the quest you were following, the nearest of the tracker's quests is followed, so the GPS and the marker go on to it")
 
   Settings.RegisterAddOnCategory(category)
   return category
