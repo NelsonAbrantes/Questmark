@@ -152,6 +152,7 @@ Core.defaults = {
     bookMapZoom = 1,          -- how close its map opens on the quest's place
     bookAnimations = true,    -- it opens, shuts and turns its pages as a book
     bookSounds = true,        -- its sounds (opening, shutting, page turns)
+    bookPad = true,           -- a controller moves through it (Tracker/BookPad.lua)
     zoneOnly = false,         -- only the quests of the current zone
     zoneHeaders = true,       -- quests sorted by zone, with each zone's name above them
     currentZoneFirst = true,  -- the zone you're in at the top
