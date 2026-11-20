@@ -2,7 +2,7 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
-## 0.2.4 (beta)
+## 0.3.0 (beta)
 
 - Quest book: completed quests behind a red ribbon, by day
 - Completed quests show their text and rewards, the one chosen in color
@@ -11,7 +11,7 @@ Versions are named `X.Y.Z`: `0.x` while in beta.
 - Follows the next quest after a turn-in
 - Job's done for the Alliance
 - Navigation marker: Class icon style
-- Fix: bosses made of several creatures
+- Fix: dungeon bosses made of several creatures are checked off only when all of them die
 
 ## 0.2.3 (beta)
 
