@@ -2,6 +2,17 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.2.4 (beta)
+
+- Quest book: completed quests behind a red ribbon, by day
+- Completed quests show their text and rewards, the one chosen in color
+- Turn-in XP in the Quests title
+- Dungeon records
+- Follows the next quest after a turn-in
+- Job's done for the Alliance
+- Navigation marker: Class icon style
+- Fix: bosses made of several creatures
+
 ## 0.2.3 (beta)
 
 - Navigation marker: Quest mark, Faction crest and Sword styles

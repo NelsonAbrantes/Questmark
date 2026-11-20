@@ -169,6 +169,7 @@ local function QuestText(questID)
   return Core.Readable(description) and description or nil,
     Core.Readable(objectives) and objectives or nil
 end
+Core.BookQuestText = QuestText -- (Behavior/History.lua)
 
 ----
 -- Tags: what kind of quest it is (daily, group, campaign...)
@@ -254,6 +255,28 @@ local function DifficultyInk(questID, level)
 end
 
 local function QuestList()
+  -- The quests turned in, instead (the red ribbon, see BuildRibbon; Behavior/History.lua)
+  -- Under the day they were turned in ("Today", "Yesterday", "19 November")
+  if book.showDone then
+    local done, header = {}, nil
+    local today = date("%Y-%m-%d")
+    local yesterday = date("%Y-%m-%d", time() - 24 * 60 * 60)
+    local history = Core.QuestHistory and Core.QuestHistory() or {}
+    for _, one in ipairs(history) do
+      local day = one.at and date("%Y-%m-%d", one.at) or "?"
+      if not header or header.day ~= day then
+        local label = day == today and "Today" or day == yesterday and "Yesterday"
+          or not one.at and "Long ago"
+          or date(day:sub(1, 4) == today:sub(1, 4) and "%d %B" or "%d %B %Y", one.at):gsub("^0", "")
+        -- (no zone of the game starts with that first letter)
+        header = { header = true, title = "\1done:"..day, label = label, day = day, quests = 0 }
+        done[#done + 1] = header
+      end
+      header.quests = header.quests + 1
+      done[#done + 1] = { history = one, title = one.title or "", level = one.level, zone = header, tags = "" }
+    end
+    return done, #history
+  end
   -- (the log can have the same zone twice, as two groups: one zone here, in
   -- the place of its first group, with the quests of both)
   local groups, byTitle = {}, {}
@@ -295,16 +318,6 @@ local function QuestList()
       for _, quest in ipairs(one.quests) do quests[#quests + 1] = quest end
     end
   end
-  -- The quests turned in, last, under their own zone ("Completed", closed
-  -- at first): see Behavior/History.lua
-  local history = Core.QuestHistory and Core.QuestHistory() or {}
-  if #history > 0 then
-    local header = { header = true, title = Core.HISTORY_KEY, label = "Completed", quests = #history }
-    quests[#quests + 1] = header
-    for _, done in ipairs(history) do
-      quests[#quests + 1] = { history = done, title = done.title or "", level = done.level, zone = header, tags = "" }
-    end
-  end
   return quests, n
 end
 
@@ -317,12 +330,12 @@ local function Rewards(questID)
     found.money = _G.GetQuestLogRewardMoney and _G.GetQuestLogRewardMoney(questID) or 0
     found.xp = _G.GetQuestLogRewardXP and _G.GetQuestLogRewardXP(questID) or 0
     for i = 1, _G.GetNumQuestLogRewards and _G.GetNumQuestLogRewards(questID) or 0 do
-      local name, texture, amount, quality = _G.GetQuestLogRewardInfo(i, questID)
-      found.items[#found.items + 1] = { kind = "reward", index = i, name = name, texture = texture, amount = amount, quality = quality }
+      local name, texture, amount, quality, _, itemID = _G.GetQuestLogRewardInfo(i, questID)
+      found.items[#found.items + 1] = { kind = "reward", index = i, name = name, texture = texture, amount = amount, quality = quality, itemID = itemID }
     end
     for i = 1, _G.GetNumQuestLogChoices and _G.GetNumQuestLogChoices(questID, true) or 0 do
-      local name, texture, amount, quality = _G.GetQuestLogChoiceInfo(i)
-      found.choices[#found.choices + 1] = { kind = "choice", index = i, name = name, texture = texture, amount = amount, quality = quality }
+      local name, texture, amount, quality, _, itemID = _G.GetQuestLogChoiceInfo(i)
+      found.choices[#found.choices + 1] = { kind = "choice", index = i, name = name, texture = texture, amount = amount, quality = quality, itemID = itemID }
     end
     local currencies = C_QuestLog.GetQuestRewardCurrencies and C_QuestLog.GetQuestRewardCurrencies(questID)
     for i, currency in ipairs(currencies or {}) do
@@ -334,6 +347,8 @@ local function Rewards(questID)
   end)
   return found
 end
+
+Core.BookRewards = Rewards -- (Behavior/History.lua)
 
 -- An item's name color, dark enough for the paper (plain items in ink)
 local function QualityColor(quality)
@@ -377,7 +392,12 @@ local function RewardButton(i)
   button:SetScript("OnEnter", function (self)
     local tooltip = _G.GameTooltip
     tooltip:SetOwner(self, "ANCHOR_NONE")
-    if self.kind == "currency" then
+    if self.link then
+      -- (a quest turned in: its item, kept)
+      pcall(tooltip.SetHyperlink, tooltip, self.link)
+    elseif not selected then
+      return
+    elseif self.kind == "currency" then
       pcall(tooltip.SetQuestLogCurrency, tooltip, "reward", self.index, selected)
     else
       pcall(tooltip.SetQuestLogItem, tooltip, self.kind, self.index, selected)
@@ -393,8 +413,9 @@ local function RewardButton(i)
   end)
   -- Like the game's rewards: Ctrl-click tries it on, Shift-click links it
   button:SetScript("OnClick", function (self)
-    if self.kind == "currency" or not selected then return end
-    local link = _G.GetQuestLogItemLink and _G.GetQuestLogItemLink(self.kind, self.index, selected)
+    local link = self.link
+    if not link and (self.kind == "currency" or not selected) then return end
+    link = link or _G.GetQuestLogItemLink and _G.GetQuestLogItemLink(self.kind, self.index, selected)
     if not link then return end
     if _G.IsModifiedClick("DRESSUP") and _G.DressUpItemLink then
       _G.DressUpItemLink(link)
@@ -409,11 +430,18 @@ end
 
 local function ShowReward(i, item, y, column)
   local button = RewardButton(i)
-  button.kind, button.index = item.kind, item.index
+  button.kind, button.index, button.link = item.kind, item.index, item.link
   button.icon:SetTexture(item.texture or 134400) -- (a question mark until known)
+  -- (a quest turned in: the rewards not chosen in gray)
+  button.icon:SetDesaturated(item.dim or false)
+  button.icon:SetAlpha(item.dim and 0.6 or 1)
   button.amount:SetText(item.amount and item.amount > 1 and item.amount or "")
   button.name:SetText(item.name or "")
-  button.name:SetTextColor(QualityColor(item.quality))
+  if item.dim then
+    button.name:SetTextColor(unpack(FADED))
+  else
+    button.name:SetTextColor(QualityColor(item.quality))
+  end
   button:ClearAllPoints()
   button:SetPoint("TOPLEFT", column * (TEXT_W / 2 + 4), -y)
   button:Show()
@@ -774,12 +802,7 @@ local function Row(i)
     if self.zone then
       -- A zone: opens or closes
       local collapsed = Collapsed()
-      if self.zone == Core.HISTORY_KEY then
-        -- (closed at first: open is kept as false)
-        collapsed[self.zone] = not collapsed[self.zone]
-      else
-        collapsed[self.zone] = not collapsed[self.zone] or nil
-      end
+      collapsed[self.zone] = not collapsed[self.zone] or nil
       FillList()
     elseif self.questID then
       -- Shift-click: its link in the chat box being written, as in the game
@@ -794,6 +817,8 @@ local function Row(i)
         wantMap = false
         Turn(self.questID)
       end
+    elseif self.history and Core.ShowDoneQuest then
+      Core.ShowDoneQuest(self.history)
     end
   end)
   rows[i] = row
@@ -1025,6 +1050,7 @@ local function BuildLeft()
   heading:SetPoint("TOP")
   heading:SetText("Quests")
   heading:SetTextColor(unpack(RED))
+  book.heading = heading
   Ornament(left, heading, 180)
   count = left:CreateFontString(nil, "ARTWORK")
   count:SetFontObject(fonts.Small)
@@ -1237,53 +1263,6 @@ local function BuildRight()
   chooseText:SetTextColor(unpack(FADED))
   chooseText:SetText("Choose one:")
 
-  -- Your note on the quest, last on the page (kept per character until the
-  -- quest is turned in, see Behavior/History.lua)
-  local note = {}
-  parts.note = note
-  note.heading = textContent:CreateFontString(nil, "ARTWORK")
-  note.heading:SetFontObject(fonts.Heading)
-  note.heading:SetTextColor(unpack(RED))
-  note.heading:SetText("Notes")
-  note.box = CreateFrame("EditBox", nil, textContent)
-  note.box:SetMultiLine(true)
-  note.box:SetAutoFocus(false)
-  note.box:SetFontObject(fonts.Text)
-  note.box:SetTextColor(unpack(INK))
-  note.box:SetWidth(TEXT_W)
-  note.box:SetMaxLetters(500)
-  note.hint = note.box:CreateFontString(nil, "ARTWORK")
-  note.hint:SetFontObject(fonts.Small)
-  note.hint:SetTextColor(unpack(FADED))
-  note.hint:SetPoint("TOPLEFT")
-  note.hint:SetText("Click to write a note")
-  -- (the writing's height, measured: an edit box doesn't say it)
-  note.measure = textContent:CreateFontString(nil, "ARTWORK")
-  note.measure:SetFontObject(fonts.Text)
-  note.measure:SetWidth(TEXT_W)
-  note.measure:SetAlpha(0)
-  function note.Fit()
-    local text = note.box:GetText() or ""
-    if text == "" or text:sub(-1) == "\n" then text = text.." " end
-    note.measure:SetText(text)
-    local height = math.max(note.measure:GetStringHeight() or 0, note.hint:GetStringHeight() or 0, 12)
-    note.box:SetHeight(height)
-    return height
-  end
-  note.box:SetScript("OnTextChanged", function (self, byUser)
-    local text = self:GetText() or ""
-    note.hint:SetShown(text == "" and not self:HasFocus())
-    if byUser and note.questID then Core.QuestNotes()[note.questID] = text ~= "" and text or nil end
-    if note.top then
-      textContent:SetHeight(math.max(1, note.top + note.Fit()))
-      UpdateFades()
-    end
-  end)
-  note.box:SetScript("OnEditFocusGained", function () note.hint:Hide() end)
-  note.box:SetScript("OnEditFocusLost", function (self) note.hint:SetShown((self:GetText() or "") == "") end)
-  note.box:SetScript("OnEscapePressed", function (self) self:ClearFocus() end)
-  book:HookScript("OnHide", function () note.box:ClearFocus() end)
-
   hint = rightContent:CreateFontString(nil, "ARTWORK")
   hint:SetFontObject(fonts.Heading)
   hint:SetPoint("CENTER")
@@ -1447,13 +1426,74 @@ local function BuildMapView()
   mapHolder:SetPoint("TOP", 0, -MAP_TOP)
 end
 
-local function Build()
+-- (in a block of their own: the file's main part is at the game's limit of
+-- 200 names)
+local Build
+do
+-- The quests turned in: a second ribbon, red, falling from the top of the
+-- book over the left page's margin, shorter than the blue one in the middle
+-- (the spellbook's ribbon, its end only).
+-- Clicked, the left page lists them; again, the quests
+local RIBBON_SHOW = 0.34 -- how much of the ribbon shows (its forked end)
+local RIBBON_X = LEFT_X - 46 -- where, from the book's left (in the margin)
+local RIBBON_TOP = 6 -- from the book's top
+local function BuildRibbon()
+  local info = Atlas(GAME_RIBBON)
+  local pageInfo = Atlas(GAME_LEFT)
+  if not (info and pageInfo) then return end
+  local scale = (BOOK_W / 2) / pageInfo.width * 0.8
+  local width, height = info.width * scale, info.height * scale * RIBBON_SHOW
+  -- (over the page, under the writing)
+  local ribbon = book:CreateTexture(nil, "BACKGROUND", nil, 3)
+  ribbon:SetTexture(info.file)
+  local t, b = info.topTexCoord, info.bottomTexCoord
+  ribbon:SetTexCoord(info.leftTexCoord, info.rightTexCoord, b - (b - t) * RIBBON_SHOW, b)
+  ribbon:SetDesaturated(true)
+  ribbon:SetSize(width, height)
+  ribbon:SetPoint("TOP", book, "TOPLEFT", RIBBON_X, -RIBBON_TOP)
+  shown[#shown + 1] = ribbon
+  local button = CreateFrame("Button", nil, book)
+  button:SetAllPoints(ribbon)
+  local function Paint(over)
+    local light = (over or book.showDone) and 1 or 0.78
+    ribbon:SetVertexColor(0.85 * light, 0.24 * light, 0.16 * light)
+    -- (a little longer while it's open)
+    ribbon:SetHeight(height + (book.showDone and 8 or 0))
+  end
+  Paint(false)
+  button:SetScript("OnEnter", function (self)
+    Paint(true)
+    local tooltip = _G.GameTooltip
+    tooltip:SetOwner(self, "ANCHOR_RIGHT")
+    tooltip:SetText(book.showDone and "Back to the quests" or "Completed quests")
+    tooltip:Show()
+  end)
+  button:SetScript("OnLeave", function ()
+    Paint(false)
+    _G.GameTooltip:Hide()
+  end)
+  button:SetScript("OnClick", function (self)
+    book.showDone = not book.showDone or nil
+    -- (the right page empty, as when the book opens)
+    Select(nil)
+    Sound("IG_ABILITY_PAGE_TURN")
+    list:SetVerticalScroll(0)
+    FillList()
+    Paint(self:IsMouseOver())
+    if self:IsMouseOver() then self:GetScript("OnEnter")(self) end
+  end)
+  book.ribbonPaint = Paint
+end
+
+function Build()
   BuildBook(GameBook())
+  BuildRibbon()
   BuildLeft()
   BuildRight()
   BuildMapView()
   BuildButtons()
   BuildEvents()
+end
 end
 
 
@@ -1867,9 +1907,9 @@ local function Searched(quests, query)
   for _, item in ipairs(quests) do
     if item.header then
       zone, zoneIn = item, false
-    elseif not item.history then
-      local words = { item.title or "", item.zone and item.zone.title or "" }
-      for _, objective in ipairs(C_QuestLog.GetQuestObjectives(item.questID) or {}) do
+    else
+      local words = { item.title or "", item.history and (item.history.zone or "") or item.zone and item.zone.title or "" }
+      for _, objective in ipairs(item.questID and C_QuestLog.GetQuestObjectives(item.questID) or {}) do
         words[#words + 1] = objective.text or ""
       end
       if table.concat(words, " "):lower():find(query, 1, true) then
@@ -1892,15 +1932,17 @@ function FillList()
   local query = book.query ~= nil and book.query ~= "" and book.query:lower() or nil
   local shownCount = n
   if query then quests, shownCount = Searched(quests, query) end
+  book.heading:SetText(book.showDone and "Completed" or "Quests")
   if query then
     count:SetText(("%d of %d quests"):format(shownCount, n))
+  elseif book.showDone then
+    count:SetText(n == 1 and "1 quest turned in" or n.." quests turned in")
   else
     count:SetText(n == 1 and "1 quest" or n.." quests")
   end
   local at = list:GetVerticalScroll()
   for _, row in ipairs(rows) do row:Hide() end
   local collapsed = Collapsed()
-  if collapsed[Core.HISTORY_KEY] == nil then collapsed[Core.HISTORY_KEY] = true end
 
   local width = listContent:GetWidth()
   local y, i = 0, 0
@@ -1937,10 +1979,10 @@ function FillList()
         row.toggle:Hide()
         row.count:Hide()
         if item.history then
-          -- (turned in: faded, with the day)
+          -- (turned in: faded, under its day; a repeatable one with how many times)
           row.color = FADED
-          local when = item.history.at and date("%d %b", item.history.at)
-          row.text:SetText(when and ("%s  %s%s|r"):format(item.title, FADED_HEX, when) or item.title)
+          local times = item.history.times
+          row.text:SetText(times and times > 1 and ("%s  %sx%d|r"):format(item.title, FADED_HEX, times) or item.title)
         else
           -- (its difficulty's color; done: the game's "?" to give it back after it)
           row.color = DifficultyInk(item.questID, item.level)
@@ -1956,7 +1998,8 @@ function FillList()
         row.text:SetPoint("TOPLEFT")
         row.text:SetWidth(width - indent)
       end
-      local open = item.questID and item.questID == selected
+      local open = (item.questID and item.questID == selected)
+        or (item.history and item.history == book.openDone) or false
       row.selected:SetShown(open)
       row.open = open
       row.order = i
@@ -1991,7 +2034,7 @@ function FillList()
     row.selected:Hide()
     row.text:SetFontObject(fonts.ListPlain)
     row.text:SetShadowOffset(0, 0)
-    row.text:SetText(n == 0 and "No quests taken." or "No quests found.")
+    row.text:SetText(n > 0 and "No quests found." or book.showDone and "No quests turned in yet." or "No quests taken.")
     row.text:SetTextColor(unpack(FADED))
     row.text:ClearAllPoints()
     row.text:SetPoint("TOPLEFT")
@@ -2010,9 +2053,9 @@ end
 
 ---
 -- The right page's writing (keep: where it was scrolled stays)
-function FillText(questID, keep)
+function FillText(questID, keep, entry)
   -- A quest done: "Completed" stamped on the page (with a thump as it shows)
-  local done = C_QuestLog.IsComplete(questID) and true or false
+  local done = entry and true or C_QuestLog.IsComplete(questID) and true or false
   local wasShown = stamp:IsShown()
   stamp:SetShown(done)
   -- (during a page turn, once the page lands; the book opening, once its
@@ -2022,16 +2065,29 @@ function FillText(questID, keep)
     -- (not there at all until it comes down)
     if later then stamp:SetAlpha(0) else stamp.thump:Play() end
   end
-  local index = C_QuestLog.GetLogIndexForQuestID(questID)
-  local info = index and C_QuestLog.GetInfo(index)
-  -- (the kind's icon right after the name, a little bigger; the words below)
-  local kinds, icons = Tags(questID, info and info.frequency, TAG_ICON_PAGE, true)
-  local name = C_QuestLog.GetTitleForQuestID(questID) or ""
+  local kinds, icons, name
+  if entry then
+    -- (turned in: when, and where)
+    local last = (entry.times or 1) > 1 and entry.times.." times, last " or ""
+    kinds, icons, name = entry.at and ("Turned in "..last..date("%d %b %Y", entry.at)) or "", "", entry.title or ""
+    if entry.zone then kinds = kinds ~= "" and kinds..", "..entry.zone or entry.zone end
+  else
+    local index = C_QuestLog.GetLogIndexForQuestID(questID)
+    local info = index and C_QuestLog.GetInfo(index)
+    -- (the kind's icon right after the name, a little bigger; the words below)
+    kinds, icons = Tags(questID, info and info.frequency, TAG_ICON_PAGE, true)
+    name = C_QuestLog.GetTitleForQuestID(questID) or ""
+  end
   title:SetText(icons ~= "" and name.." "..icons or name)
   tags:SetText(kinds)
   local y = title:GetStringHeight() + (kinds ~= "" and tags:GetStringHeight() + 3 or 0) + GAP
 
-  local description, objectives = QuestText(questID)
+  local description, objectives
+  if entry then
+    description, objectives = entry.text or "Turned in before the book kept the quests' text.", entry.objectives
+  else
+    description, objectives = QuestText(questID)
+  end
   local texts = {
     { "Objectives", objectives },
     { "Description", description or "The game didn't give this quest's text." },
@@ -2055,7 +2111,38 @@ function FillText(questID, keep)
   -- Rewards: experience and money in a line, then the items (and the ones
   -- to choose from)
   for _, button in ipairs(rewardButtons) do button:Hide() end
-  local rewards = Rewards(questID)
+  local rewards
+  if entry then
+    -- (turned in: what it gave, and all the rewards to choose from, the
+    -- one chosen in its color)
+    local kept = entry.rewards or {}
+    -- (an item the game hadn't loaded then: its name and icon asked for now,
+    -- the page filled again once they come; one not known at all, left out)
+    local function Known(item, dim)
+      local id = item.itemID or item.link
+      local GetInfo = _G.C_Item and _G.C_Item.GetItemInfo or _G.GetItemInfo
+      if item.name or not (id and GetInfo) then
+        return item.name and setmetatable({ dim = dim }, { __index = item }) or nil
+      end
+      local name, link, quality, _, _, _, _, _, _, texture = GetInfo(id)
+      if not name and item.itemID and _G.Item and _G.Item.CreateFromItemID then
+        _G.Item:CreateFromItemID(item.itemID):ContinueOnItemLoad(function ()
+          if book.openDone == entry then FillText(nil, true, entry) end
+        end)
+      end
+      return setmetatable({ name = name, link = item.link or link, quality = quality, texture = texture, dim = dim },
+        { __index = item })
+    end
+    local items, choices = {}, {}
+    for _, item in ipairs(kept.items or {}) do items[#items + 1] = Known(item) end
+    for i, item in ipairs(kept.choices or {}) do
+      choices[#choices + 1] = Known(item, entry.chosen and entry.chosen ~= i or nil)
+    end
+    rewards = { xp = kept.xp or entry.xp, money = kept.money or entry.money, items = items, choices = choices }
+  else
+    rewards = Rewards(questID)
+  end
+  chooseText:SetText(not entry and "Choose one:" or entry.chosen and "You chose:" or "To choose from:")
   local line = {}
   -- (the experience with the tracker's own xp icon, in the experience bar's
   -- purple with a thin dark outline; the money with the game's coins: gold,
@@ -2116,21 +2203,6 @@ function FillText(questID, keep)
     y = y + GAP
   end
 
-  -- Your note, last
-  local note = parts.note
-  note.questID = nil -- (not saved while it's filled)
-  note.box:ClearFocus()
-  note.heading:ClearAllPoints()
-  note.heading:SetPoint("TOPLEFT", 0, -y)
-  y = y + note.heading:GetStringHeight() + 4
-  note.box:ClearAllPoints()
-  note.box:SetPoint("TOPLEFT", 0, -y)
-  note.top = nil
-  note.box:SetText(Core.QuestNotes and Core.QuestNotes()[questID] or "")
-  note.hint:SetShown(note.box:GetText() == "")
-  note.top = y
-  note.questID = questID
-  y = y + note.Fit() + GAP
 
   textContent:SetHeight(math.max(1, y - GAP))
   if keep then
@@ -2166,6 +2238,7 @@ end
 -- the list
 function Select(questID)
   selected = questID
+  book.openDone = nil
   if questID and OpenZoneOf(questID) and book:IsShown() then FillList() end
   if not questID then
     Core.HideQuestMap()
@@ -2216,6 +2289,26 @@ function Turn(questID)
   turning = { t = 0, questID = questID }
 end
 
+---
+-- Opens a quest turned in on the right page (an entry of the history)
+function Core.ShowDoneQuest(entry)
+  if not book or book.openDone == entry then return end
+  Sound("IG_ABILITY_PAGE_TURN")
+  selected = nil
+  book.openDone = entry
+  Core.HideQuestMap()
+  selectedHasMap = false
+  mapView:Hide()
+  if book.grip then book.grip:Show() end
+  hint:Hide()
+  textScroll:Show()
+  textScroll:ClearAllPoints()
+  textScroll:SetPoint("TOPLEFT")
+  textScroll:SetPoint("BOTTOMRIGHT", 0, BUTTONS_H + 6)
+  FillText(nil, false, entry)
+  FillList()
+end
+
 -- The names the zone you're in can have in the quest log: its map's (and
 -- the maps around it, for a town or a cave in a zone) and the game's own
 local function HereNames()
@@ -2248,7 +2341,11 @@ end
 local function Open()
   if not book then Build() end
   if not book:IsShown() or closing then
-    if not book:IsShown() then CloseZones() end
+    if not book:IsShown() then
+      CloseZones()
+      book.showDone = nil
+      if book.ribbonPaint then book.ribbonPaint(false) end
+    end
     book:Show()
     book:Raise()
     StartOpen()
@@ -2569,7 +2666,11 @@ end
 local function Refill()
   if not (book and book:IsShown()) then return end
   FillList()
-  if selected then FillText(selected, true) end
+  if selected then
+    FillText(selected, true)
+  elseif book.openDone then
+    FillText(nil, true, book.openDone)
+  end
 end
 
 Core:OnChange(function (key)
