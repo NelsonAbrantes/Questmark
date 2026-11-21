@@ -2,6 +2,13 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.3.1 (beta)
+
+- Fix: the navigation marker shows again
+- Fix: Stormwind Stockade bosses on the dungeon card
+- Share taken out: the game blocks it from addons
+- Bigger search clear button
+
 ## 0.3.0 (beta)
 
 - Quest book: completed quests behind a red ribbon, by day
