@@ -963,17 +963,11 @@ local function Abandon(questID)
   _G.StaticPopup_Show("ABANDON_QUEST", C_QuestLog.GetTitleForQuestID(questID))
 end
 
-local function Share(questID)
-  if _G.QuestMapQuestOptions_ShareQuest then
-    _G.QuestMapQuestOptions_ShareQuest(questID)
-    return
-  end
-  C_QuestLog.SetSelectedQuest(questID)
-  if _G.QuestLogPushQuest then _G.QuestLogPushQuest() end
-end
+-- (no Share: the game lets only its own quest log share a quest; from an
+-- addon it's blocked)
 
 -- (for the quest list's menu too, see QuestText.lua)
-Core.FollowQuest, Core.AbandonQuest, Core.ShareQuest = Follow, Abandon, Share
+Core.FollowQuest, Core.AbandonQuest = Follow, Abandon
 
 ----
 -- Questie's icons on the game's map: a click on one of a quest you have
@@ -1028,9 +1022,6 @@ local function Menu(block)
       if Core.BookOn() then
         root:CreateButton("Show in quest log", function () Open(entry) end)
         root:CreateButton("Show on map", function () Core.ShowQuestText(entry.id, true) end)
-      end
-      if C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(entry.id) and _G.IsInGroup() then
-        root:CreateButton("Share", function () Share(entry.id) end)
       end
       root:CreateButton("Stop tracking", function () Untrack(entry) end)
       if C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(entry.id) then

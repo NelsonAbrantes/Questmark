@@ -86,6 +86,12 @@ local function JournalDungeon(name)
   local db = type(journal) == "table" and type(journal.DB) == "table" and journal.DB
   if not db then return nil, nil end
   local key = (db[name] and name) or (_G.GetRealZoneText and db[_G.GetRealZoneText()] and _G.GetRealZoneText())
+  -- (the game's name may differ from the addon's: "Stormwind Stockade" is
+  -- its "The Stockade". Then by the dungeon's number, inside it)
+  if not key and type(journal.INSTANCE_ID_TO_DUNGEON) == "table" and _G.IsInInstance() then
+    local byID = journal.INSTANCE_ID_TO_DUNGEON[select(8, GetInstanceInfo())]
+    if byID and db[byID] then key = byID end
+  end
   if not key and type(journal.DUNGEON_MAPS) == "table" then
     local map = _G.C_Map and _G.C_Map.GetBestMapForUnit and _G.C_Map.GetBestMapForUnit("player")
     for dungeonName, info in pairs(journal.DUNGEON_MAPS) do

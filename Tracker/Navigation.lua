@@ -195,13 +195,18 @@ local function SightAlpha(Nav)
   local game = _G.SuperTrackedFrame
   if game and type(game.GetTargetAlphaBaseValue) == "function" then
     local ok, alpha = pcall(game.GetTargetAlphaBaseValue, game)
-    if ok and type(alpha) == "number" then return math.max(0, math.min(1, alpha)) end
+    -- (0: the game keeping its own mark hidden, its navigation setting off or
+    -- gone; ours shows anyway, by the place being in sight or not)
+    if ok and type(alpha) == "number" and alpha > 0 then return math.min(1, alpha) end
   end
   if Nav.WasClampedToScreen and Nav.WasClampedToScreen() then return 1 end
   local states = _G.Enum and _G.Enum.NavigationState
   local state = Nav.GetTargetState and Nav.GetTargetState()
   if states and state == states.Occluded then return OCCLUDED_ALPHA end
-  return 1
+  -- (the game not knowing if it's in sight: its navigation setting gone on
+  -- this game, "Invalid". See-through, as the game's mark mostly was)
+  if states and state == states.InRange then return 1 end
+  return OCCLUDED_ALPHA
 end
 
 local function MouseAlpha()
