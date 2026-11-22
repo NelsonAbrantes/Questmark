@@ -2,6 +2,12 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.3.3 (beta)
+
+- Fix: the Default navigation marker shows
+- Completed quests grouped by month and year
+- Quest book works with a controller
+
 ## 0.3.2 (beta)
 
 - Share is back: in combat a message instead of an error

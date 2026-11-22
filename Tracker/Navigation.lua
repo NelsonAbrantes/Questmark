@@ -109,12 +109,42 @@ local distance = marker:CreateFontString(nil, "OVERLAY")
 distance:SetFontObject(font)
 distance:SetPoint("TOP", shape, "BOTTOM", 0, -2)
 
+-- "Default": the game's own mark, copied (this game keeps its own hidden
+-- when its navigation setting is gone: it never showed). The game changes
+-- it with what's followed: copied again when it does
+local copied
+local function CopyGameMark(game)
+  local icon = game and game.Icon
+  local atlas = icon and icon.GetAtlas and icon:GetAtlas()
+  local file = not atlas and icon and icon.GetTexture and icon:GetTexture()
+  local key = atlas or file or "none"
+  if key == copied then return end
+  copied = key
+  local size = Profile().navSize or 32
+  if atlas then
+    shape:SetAtlas(atlas)
+  elseif file then
+    shape:SetTexture(file)
+    shape:SetTexCoord(icon:GetTexCoord())
+  else
+    shape:SetTexture(Core.ASSETS..STYLES.diamond)
+    shape:SetTexCoord(0, 1, 0, 1)
+  end
+  local w, h = 0, 0
+  if icon then w, h = icon:GetSize() end
+  if w and w > 0 and h and h > 0 then shape:SetSize(w, h) else shape:SetSize(size, size) end
+end
+
 local function Look()
   local profile = Profile()
   local size = profile.navSize or 32
   local crest = profile.navStyle == "faction" and Crest(shape)
   local classIcon = profile.navStyle == "class" and ClassIcon(shape)
-  if not (crest or classIcon) then
+  local gameMark = not STYLES[profile.navStyle]
+  copied = nil
+  if gameMark then
+    CopyGameMark(_G.SuperTrackedFrame)
+  elseif not (crest or classIcon) then
     -- (the whole image again: the game's crest cuts a part of a bigger one)
     shape:SetTexture(Core.ASSETS..(STYLES[profile.navStyle] or STYLES.diamond))
     shape:SetTexCoord(0, 1, 0, 1)
@@ -122,7 +152,7 @@ local function Look()
   -- (the game's crest has room around it in its picture: drawn bigger, to
   -- look as big as the other marks)
   local drawn = crest and size * 1.5 or size
-  shape:SetSize(drawn, drawn)
+  if not gameMark then shape:SetSize(drawn, drawn) end
   pointer:SetSize(size * 0.45, size * 0.45)
   -- (a pin stands on the place with its point; the others sit over it)
   shape:ClearAllPoints()
@@ -133,9 +163,9 @@ local function Look()
   if not r then r, g, b = Core:TitleColor() end
   -- (the crest keeps the game's colors, and its little arrow takes the
   -- crest's; the distance takes the color chosen)
-  if crest then
+  if crest or gameMark then
     shape:SetVertexColor(1, 1, 1)
-    pointer:SetVertexColor(CrestColor())
+    if crest then pointer:SetVertexColor(CrestColor()) else pointer:SetVertexColor(r, g, b) end
   elseif classIcon then
     local cr, cg, cb = ClassColor()
     shape:SetVertexColor(1, 1, 1)
@@ -266,6 +296,7 @@ marker:SetScript("OnUpdate", function ()
   x, y = x * scale, y * scale
   marker:ClearAllPoints()
   marker:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+  if not STYLES[Profile().navStyle] then CopyGameMark(game) end
   shape:Show()
   local Nav = _G.C_Navigation
   -- (out of sight, at the screen's edge: the little arrow on the side of
@@ -308,10 +339,10 @@ local function GameNavigation(on)
   end
 end
 
--- (Marker "Default": the game's own mark, as it is)
+-- (Marker "Default": the game's own mark, copied on ours)
 local function Update()
   local profile = Profile()
-  local own = profile.navMarker and STYLES[profile.navStyle] and true or false
+  local own = profile.navMarker and true or false
   Look()
   HideGameMark(own)
   marker:SetShown(own)
