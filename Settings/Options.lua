@@ -275,6 +275,7 @@ local function Build()
   Slider(book, "bookMapZoom", "Map zoom", 1, 5, 0.5, "How close the map opens on the quest's place. 1: the whole zone")
   Checkbox(book, "bookAnimations", "Book animations", "The quest book opens and shuts as a book, its pages turn, its quests come in one after the other and a quest just done glows")
   Checkbox(book, "bookSounds", "Book sounds", "The sounds of the quest book opening, shutting and turning its pages")
+  Checkbox(book, "bookPad", "Controller in the book", "With the game's controller support on, the controller moves through the open quest book: D-pad to choose, Cross (A) to open, Circle (B) to close, Square (X) to track, Triangle (Y) to follow, L1/R1 for the quest before or after, L2/R2 to scroll the page. With ConsolePort, its own cursor is used instead")
 
   -- Following a quest: the GPS and the game's navigation, a page of their
   -- own (Options > AddOns > Questmark > Quest GPS)

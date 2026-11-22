@@ -429,6 +429,7 @@ local function RewardButton(i)
     lastX, lastY = nil, nil
     Follow()
     tooltip:Show()
+    if Core.BookPadEnter then Core.BookPadEnter(self, textScroll) end
     self:SetScript("OnUpdate", Follow)
   end)
   button:SetScript("OnLeave", function (self)
@@ -585,7 +586,7 @@ local function BuildButtons()
       if not self:IsEnabled() then
         self.label:SetTextColor(FADED[1], FADED[2], FADED[3], 0.45)
       -- (fully seen again: the color alone kept the faded one's see-through)
-      elseif self:IsMouseOver() then
+      elseif self:IsMouseOver() or self.padFocus then
         self.label:SetTextColor(0.78, 0.22, 0.06, 1)
       else
         self.label:SetTextColor(RED[1], RED[2], RED[3], 1)
@@ -814,6 +815,7 @@ local function Row(i)
     self.text:SetTextColor(RED[1], RED[2], RED[3])
     if self.zone then self.toggle:SetVertexColor(RED[1], RED[2], RED[3]) end
     if self.history and Core.HistoryTooltip then Core.HistoryTooltip(self, self.history) end
+    if Core.BookPadEnter then Core.BookPadEnter(self, list) end
   end)
   row:SetScript("OnLeave", function (self)
     self.underline:Hide()
@@ -1519,6 +1521,7 @@ function Build()
   BuildMapView()
   BuildButtons()
   BuildEvents()
+  if Core.BookBuilt then Core.BookBuilt() end
 end
 end
 
@@ -2097,6 +2100,7 @@ function FillList()
   listContent:SetHeight(math.max(1, y))
   list:SetVerticalScroll(math.min(at, math.max(0, y - list:GetHeight())))
   UpdateFades()
+  if Core.BookListFilled then Core.BookListFilled() end
 end
 
 ---
@@ -2673,6 +2677,28 @@ Core:OnChange(function (key)
   -- (the book turned off while open: it closes)
   if key == "useBook" and not Core.BookOn() and book and book:IsShown() then book:Hide() end
 end)
+end
+
+----
+-- The book's parts, for the controller (Tracker/BookPad.lua)
+
+do
+local pad
+function Core.BookParts()
+  if not book then return nil end
+  if not pad then
+    pad = {
+      book = book, list = list, textScroll = textScroll, rows = rows,
+      buttons = pageButtons, mapView = mapView, ToggleTrack = ToggleTrack,
+      Selected = function () return selected end,
+      MapBack = function ()
+        wantMap = false
+        ShowMapView(false)
+      end,
+    }
+  end
+  return pad
+end
 end
 
 ----

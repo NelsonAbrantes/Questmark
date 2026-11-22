@@ -35,6 +35,7 @@ Tracker\DungeonCard.lua
 Tracker\Items.lua
 Tracker\QuestMap.lua
 Tracker\QuestText.lua
+Tracker\BookPad.lua
 Tracker\Tracker.lua
 Tracker\Waypoint.lua
 Tracker\Navigation.lua
