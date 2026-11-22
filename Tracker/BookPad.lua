@@ -271,17 +271,16 @@ function actions.Follow()
   if questID and Core.FollowQuest then Core.FollowQuest(questID) end
 end
 
--- The quest before or after the one open, opened
+-- The quest before or after the one open, opened (a quest turned in too)
 local function NextQuest(step)
   local rows = Rows()
-  local selected = Core.BookParts().Selected()
   local at = 0
   for i, row in ipairs(rows) do
-    if selected and row.questID == selected then at = i end
+    if row.open then at = i end
   end
   if at == 0 and step < 0 then at = #rows + 1 end
   local i = at + step
-  while rows[i] and not rows[i].questID do i = i + step end
+  while rows[i] and not (rows[i].questID or rows[i].history) do i = i + step end
   local row = rows[i]
   if not row then return end
   EnterRow(row)
@@ -306,7 +305,11 @@ function actions.PageDown() Page(1) end
 
 for key, action in pairs(KEYS) do
   local button = CreateFrame("Button", "QuestmarkPad"..action, _G.UIParent)
-  button:SetScript("OnClick", function () if Core.BookParts() then actions[action]() end end)
+  -- (only on the book open: a binding left over does nothing)
+  button:SetScript("OnClick", function ()
+    local parts = Core.BookParts()
+    if parts and parts.book:IsShown() then actions[action]() end
+  end)
   buttons[key] = button
 end
 
