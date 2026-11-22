@@ -257,19 +257,43 @@ end
 local function QuestList()
   -- The quests turned in, instead (the red ribbon, see BuildRibbon; Behavior/History.lua)
   -- Under the day they were turned in ("Today", "Yesterday", "19 November")
+  -- this month; before it, the days inside their month ("October"), and
+  -- before this year the months inside their year ("2025"): not too many
+  -- headers
   if book.showDone then
     local done, header = {}, nil
+    -- (the year and the month open around the day, outermost first)
+    local outers = {}
     local today = date("%Y-%m-%d")
     local yesterday = date("%Y-%m-%d", time() - 24 * 60 * 60)
     local history = Core.QuestHistory and Core.QuestHistory() or {}
     for _, one in ipairs(history) do
       local day = one.at and date("%Y-%m-%d", one.at) or "?"
+      local keys = {}
+      if one.at and day ~= yesterday and day:sub(1, 7) ~= today:sub(1, 7) then
+        if day:sub(1, 4) ~= today:sub(1, 4) then keys[#keys + 1] = day:sub(1, 4) end
+        keys[#keys + 1] = day:sub(1, 7)
+      end
+      for level, key in ipairs(keys) do
+        local was = outers[level]
+        if not was or was.day ~= key then
+          -- (no zone of the game starts with that first letter)
+          outers[level] = { header = true, title = "\1done:"..key, day = key, quests = 0,
+            label = #key == 4 and key or date("%B", one.at), parent = outers[level - 1] }
+          done[#done + 1] = outers[level]
+          -- (a new year: its months start again)
+          for deeper = level + 1, #outers do outers[deeper] = nil end
+        end
+        outers[level].quests = outers[level].quests + 1
+      end
+      for deeper = #keys + 1, #outers do outers[deeper] = nil end
       if not header or header.day ~= day then
         local label = day == today and "Today" or day == yesterday and "Yesterday"
           or not one.at and "Long ago"
-          or date(day:sub(1, 4) == today:sub(1, 4) and "%d %B" or "%d %B %Y", one.at):gsub("^0", "")
-        -- (no zone of the game starts with that first letter)
-        header = { header = true, title = "\1done:"..day, label = label, day = day, quests = 0 }
+          or date("%d %B", one.at):gsub("^0", "")
+        -- (a day inside its month: a step in, shown while it's open)
+        header = { header = true, title = "\1done:"..day, label = label, day = day, quests = 0,
+          parent = outers[#keys] }
         done[#done + 1] = header
       end
       header.quests = header.quests + 1
@@ -1905,10 +1929,10 @@ end
 -- The quests the search finds (in their name, their zone or their
 -- objectives), with their zones; and how many
 local function Searched(quests, query)
-  local found, kept, zone, zoneIn = {}, 0, nil, false
+  local found, kept, zone, added = {}, 0, nil, {}
   for _, item in ipairs(quests) do
     if item.header then
-      zone, zoneIn = item, false
+      zone = item
     else
       local words = { item.title or "", item.history and (item.history.zone or "") or item.zone and item.zone.title or "" }
       for _, objective in ipairs(item.questID and C_QuestLog.GetQuestObjectives(item.questID) or {}) do
@@ -1916,10 +1940,14 @@ local function Searched(quests, query)
       end
       if table.concat(words, " "):lower():find(query, 1, true) then
         -- (its zone once, before its first quest found)
-        if zone and not zoneIn then
-          found[#found + 1] = zone
-          zoneIn = true
+        -- (and a day's month and year, before it)
+        local around, outer = {}, zone
+        while outer and not added[outer] do
+          table.insert(around, 1, outer)
+          added[outer] = true
+          outer = outer.parent
         end
+        for _, header in ipairs(around) do found[#found + 1] = header end
         found[#found + 1] = item
         kept = kept + 1
       end
@@ -1948,13 +1976,31 @@ function FillList()
 
   local width = listContent:GetWidth()
   local y, i = 0, 0
+  local last
   for _, item in ipairs(quests) do
-    if item.header or query or not (item.zone and collapsed[item.zone.title]) then
+    -- (a day inside a month or year: shown while that one is open, its
+    -- quests while both are; one step in)
+    -- (a year, month or day closed: what's inside it hidden; a step in for
+    -- each one around)
+    local outer = item.header and item.parent or item.zone
+    local hidden, depth = false, 0
+    while outer do
+      if collapsed[outer.title] then hidden = true end
+      depth = depth + 1
+      outer = outer.parent
+    end
+    outer = item.header and item.parent or item.zone and item.zone.parent
+    if query then hidden = false end
+    -- (a quest outside any zone: still a step in)
+    if not item.header and depth == 0 then depth = 1 end
+    if not hidden then
       i = i + 1
       local row = Row(i)
-      local indent = item.header and 0 or INDENT
-      -- (a little more room above each zone, but the first)
-      if item.header and i > 1 then y = y + GAP - ROW_GAP end
+      local indent = depth * INDENT
+      -- (a little more room above each zone, but the first, and a day right
+      -- under its month)
+      if item.header and i > 1 and not (outer and last == outer) then y = y + GAP - ROW_GAP end
+      last = item
       row.questID = item.questID
       row.history = item.history
       row.zone = item.header and item.title or nil
@@ -1971,12 +2017,12 @@ function FillList()
         -- (and how many quests it has, between brackets after it)
         row.count:SetText("("..item.quests..")")
         row.count:ClearAllPoints()
-        row.count:SetPoint("LEFT", row.text, "LEFT", math.min(row.text:GetStringWidth(), width - 16) + 5, -1)
+        row.count:SetPoint("LEFT", row.text, "LEFT", math.min(row.text:GetStringWidth(), width - indent - 16) + 5, -1)
         row.count:Show()
         row.toggle:SetTexture(Core.ASSETS..(closed and "expand" or "collapse"))
         row.toggle:Show()
         row.text:SetPoint("TOPLEFT", 16, 0)
-        row.text:SetWidth(width - 16)
+        row.text:SetWidth(width - indent - 16)
       else
         row.toggle:Hide()
         row.count:Hide()
