@@ -483,6 +483,9 @@ local function QuestMenu(owner, questID)
     local SuperTrack = _G.C_SuperTrack
     local followed = SuperTrack and SuperTrack.GetSuperTrackedQuestID and SuperTrack.GetSuperTrackedQuestID() == questID
     root:CreateButton(followed and "Stop following" or "Follow", function () Core.FollowQuest(questID) end)
+    if C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID) and _G.IsInGroup() then
+      root:CreateButton("Share", function () Core.ShareQuest(questID) end)
+    end
     if C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID) then
       root:CreateButton("Abandon", function () Core.AbandonQuest(questID) end)
     end
@@ -491,8 +494,8 @@ end
 
 ----
 -- Buttons under the open quest, as in the game's quest log: Show map (the
--- map over the page, when the quest has one), Track (or Untrack) and
--- Abandon. (No Share: the game blocks it from an addon.)
+-- map over the page, when the quest has one), Track (or Untrack), Share (in
+-- a group, a quest that can be shared) and Abandon.
 -- Words in the book's red ink, brighter under the mouse, faded when they
 -- can't be used.
 
@@ -509,7 +512,9 @@ local function UpdateButtons()
   if not questID then return end
   pageButtons[1]:SetEnabled(selectedHasMap and true or false)
   pageButtons[2].label:SetText(InTracker(questID) and "Untrack" or "Track")
-  pageButtons[3]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
+  pageButtons[3]:SetEnabled(C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID)
+    and _G.IsInGroup() and true or false)
+  pageButtons[4]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
   local width = -BUTTON_GAP
   for _, button in ipairs(pageButtons) do
     -- (the titles' font reaches past its own measure: room so no letter is cut)
@@ -537,6 +542,7 @@ local function BuildButtons()
       -- (its word follows once the tracker has it)
       _G.C_Timer.After(0.1, UpdateButtons)
     end },
+    { "Share", function (questID) Core.ShareQuest(questID) end },
     { "Abandon", function (questID) Core.AbandonQuest(questID) end },
   }
   for i, action in ipairs(actions) do
@@ -1301,6 +1307,8 @@ local function BuildEvents()
     self:RegisterEvent("GET_ITEM_INFO_RECEIVED")
     self:RegisterEvent("QUEST_REMOVED")
     self:RegisterEvent("QUEST_TURNED_IN")
+    -- (Share: only in a group)
+    self:RegisterEvent("GROUP_ROSTER_UPDATE")
     Sound("IG_QUEST_LOG_OPEN")
   end)
   book:SetScript("OnHide", function (self)
@@ -1315,6 +1323,7 @@ local function BuildEvents()
     self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
     self:UnregisterEvent("QUEST_REMOVED")
     self:UnregisterEvent("QUEST_TURNED_IN")
+    self:UnregisterEvent("GROUP_ROSTER_UPDATE")
     Core.HideQuestMap()
     ResetAnimations()
     rightContent:SetAlpha(1)
@@ -1333,6 +1342,9 @@ local function BuildEvents()
   book:SetScript("OnEvent", function (_, event, questID)
     if event == "QUEST_TURNED_IN" then
       turnedIn = questID
+      return
+    elseif event == "GROUP_ROSTER_UPDATE" then
+      UpdateButtons()
       return
     elseif event == "QUEST_REMOVED" then
       if not questID or questID ~= selected then return end
@@ -2258,7 +2270,7 @@ function Select(questID)
   if book.grip then book.grip:SetShown(not mapView:IsShown()) end
   textScroll:ClearAllPoints()
   textScroll:SetPoint("TOPLEFT")
-  -- (the buttons under it: Show map, Track, Abandon)
+  -- (the buttons under it: Track, Share, Abandon)
   textScroll:SetPoint("BOTTOMRIGHT", 0, BUTTONS_H + 6)
   FillText(questID)
   if book:IsShown() then FillList() end
