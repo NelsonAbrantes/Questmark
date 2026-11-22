@@ -2,6 +2,10 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.3.4 (beta)
+
+- Navigation marker on by default instead of the GPS (new players)
+
 ## 0.3.3 (beta)
 
 - Fix: the Default navigation marker shows

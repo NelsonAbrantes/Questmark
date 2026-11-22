@@ -167,7 +167,7 @@ Core.defaults = {
     questLevels = false,      -- quest names with their level before them ("[12] ...")
     autoQuests = false,       -- quests taken and given back by themselves (Shift: not)
     bossLoot = "journal",     -- a boss clicked in the dungeon card: journal or atlasloot
-    gpsArrow = true,          -- the quest GPS: an arrow on the screen to the quest followed
+    gpsArrow = false,         -- the quest GPS: an arrow on the screen to the quest followed
     gpsPosition = nil,        -- where it is (dragged): point, x, y; nil: near the top
     gpsStyle = "arrow",       -- its shape: arrow, chevron, double, triangle, needle or dart
     gpsSize = 44,             -- its size
@@ -176,7 +176,7 @@ Core.defaults = {
     gpsUnits = "yards",       -- the distance in yards or meters
     gpsQuestName = true,      -- the quest's name under the distance
     followNext = true,        -- turning in the quest followed follows the nearest one
-    navMarker = false,        -- the navigation marker: a mark on the screen over the quest's place
+    navMarker = true,         -- the navigation marker: a mark on the screen over the quest's place
     navStyle = "game",        -- its shape: game (the game's own mark), diamond, pin, ring, flag, star, quest, faction or class
     navSize = 32,             -- its size
     navColor = "title",       -- its color: "title" = Default, or one of Core.COLORS
@@ -196,7 +196,21 @@ Core.defaults = {
 -- announcements carry more (e.g. "questAdded" carries the quest block).
 
 function Core:OnInitialize()
+  -- (0.3.4: the navigation marker on by default in place of the GPS. The
+  -- profiles made before keep what they had: the old defaults written in
+  -- them, once, before they're read)
+  local saved = _G.QuestmarkDB
+  if type(saved) == "table" and type(saved.profiles) == "table" and not saved.navDefault then
+    for _, one in pairs(saved.profiles) do
+      if type(one) == "table" then
+        if one.gpsArrow == nil then one.gpsArrow = true end
+        if one.navMarker == nil then one.navMarker = false end
+      end
+    end
+  end
+  if type(saved) == "table" then saved.navDefault = true end
   self.db = LibStub("AceDB-3.0"):New("QuestmarkDB", self.defaults, true)
+  _G.QuestmarkDB.navDefault = true
 
   -- Settings of the version that restyled the game's tracker
   local profile = self.db.profile
