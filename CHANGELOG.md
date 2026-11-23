@@ -2,6 +2,15 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.4.0 (beta)
+
+- Diary: a page for each day you play (red ribbon in the book)
+- Atlas: your quests on the map, zone by zone (green ribbon)
+- Quests with the group: everyone's progress, guide the group to a quest
+- Dungeon quests shown near the entrance, before going in
+- Russian, Korean and Chinese games: their own letters
+- Fix: Stratholme no longer ends after the first boss
+
 ## 0.3.4 (beta)
 
 - Navigation marker on by default instead of the GPS (new players)
