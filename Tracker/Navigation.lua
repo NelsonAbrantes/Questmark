@@ -99,7 +99,7 @@ local shape = Core.Smooth(marker:CreateTexture(nil, "ARTWORK"))
 shape:SetPoint("CENTER")
 
 local font = CreateFont("QuestmarkNavigationFont")
-font:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+font:SetFont(Core.FONT_TEXT, 12, "OUTLINE")
 -- (out of sight: a little arrow beside the mark, toward the place)
 local pointer = Core.Smooth(marker:CreateTexture(nil, "OVERLAY"))
 pointer:SetTexture(Core.ASSETS.."gpsTriangle")
@@ -158,7 +158,7 @@ local function Look()
   shape:ClearAllPoints()
   shape:SetPoint(profile.navStyle == "pin" and "BOTTOM" or "CENTER", marker, "CENTER")
   marker:SetSize(size, size)
-  font:SetFont("Fonts\\FRIZQT__.TTF", profile.navTextSize or 12, "OUTLINE")
+  font:SetFont(Core.FONT_TEXT, profile.navTextSize or 12, "OUTLINE")
   local r, g, b = Core:Color(profile.navColor)
   if not r then r, g, b = Core:TitleColor() end
   -- (the crest keeps the game's colors, and its little arrow takes the

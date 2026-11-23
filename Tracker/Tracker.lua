@@ -310,6 +310,33 @@ local function CreateLine(block)
   line.strike:SetTexture(FLAT)
   Core.PixelHeight(line.strike, 1)
   line.strike:Hide()
+  -- (a line of its own to click: a quest to ask for, GroupLead.lua; its
+  -- right click is the block's)
+  line:SetScript("OnMouseUp", function (self, button)
+    local data = self.data
+    if not (data and data.onClick) then return end
+    if button == "RightButton" then
+      block:GetScript("OnClick")(block, "RightButton")
+    else
+      data.onClick()
+    end
+  end)
+  line:SetScript("OnEnter", function (self)
+    local data = self.data
+    if not (data and data.onClick) then return end
+    self.text:SetTextColor(1, 1, 1)
+    if data.tip then
+      _G.GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      _G.GameTooltip:SetText(data.tip, 1, 1, 1, 1, true)
+      _G.GameTooltip:Show()
+    end
+  end)
+  line:SetScript("OnLeave", function (self)
+    local color = self.color
+    if color then self.text:SetTextColor(color[1], color[2], color[3]) end
+    _G.GameTooltip:Hide()
+  end)
+  line:EnableMouse(false)
   return line
 end
 
@@ -386,12 +413,21 @@ local blocks = Pool(function ()
     line:SetAlpha(1)
   end)
   block:SetScript("OnClick", function (self, button) ClickEntry(self, button) end)
-  block:SetScript("OnEnter", function (self) self.hover = true; UpdateTitleColor(self) end)
-  block:SetScript("OnLeave", function (self) self.hover = false; UpdateTitleColor(self) end)
+  block:SetScript("OnEnter", function (self)
+    self.hover = true
+    UpdateTitleColor(self)
+    if Core.GroupFlag and self.entry then Core.GroupFlag(self) end
+  end)
+  block:SetScript("OnLeave", function (self)
+    self.hover = false
+    UpdateTitleColor(self)
+    if Core.GroupFlag and self.entry then Core.GroupFlag(self) end
+  end)
   return block
 end, function (block)
   Focus(block, false)
   block.id, block.entry = nil, nil
+  if block.groupFlag then block.groupFlag:Hide() end
   block:SetAlpha(1)
   block.gftFading = nil
   Core.ResetIcon(block.poi)
@@ -430,9 +466,18 @@ local function PlaceLine(block, data, y, width, justDone)
     or (data.ready and COLORS.ready) or COLORS.line
   line.text:SetTextColor(color[1], color[2], color[3])
   line.dash:SetTextColor(color[1], color[2], color[3])
-  line.dash:SetShown(not data.done and not data.plain)
-  line.check:SetShown(data.done and true or false)
-  if data.done then
+  line.color = color
+  line:EnableMouse(data.onClick and true or false)
+  -- (faces in place of words: the others in the party, GroupLead.lua)
+  if (data.faces or line.faces) and Core.DrawFaces then
+    local facesHeight = Core.DrawFaces(line, data.faces, 18, block.entry and block.entry.id)
+    if data.faces then textHeight = facesHeight end
+  end
+  -- (check: checked, not done: a dungeon's quest you have, see DungeonPrep.lua)
+  local checked = data.done or data.check
+  line.dash:SetShown(not checked and not data.plain)
+  line.check:SetShown(checked and true or false)
+  if checked then
     line.check:ClearAllPoints()
     line.check:SetPoint("CENTER", line, "TOPLEFT", 3, -profile.lineFontSize / 2)
   end
@@ -576,7 +621,9 @@ local function PlaceBlock(entry, y, changes)
   block.entry, block.id = entry, entry.id
   local width = content:GetWidth()
   Glide(block, y)
-  block.title:SetWidth(width - INDENT)
+  -- (the group's flag by a quest's name, GroupLead.lua: room for it)
+  local flagRoom = Core.GroupFlag and Core.GroupFlag(block) and 16 or 0
+  block.title:SetWidth(width - INDENT - flagRoom)
   block.title:SetText(entry.kind == "quest" and Core.QuestName(entry.title, entry.level) or entry.title)
   UpdateTitleColor(block)
   local titleHeight = math.max(Profile().headerFontSize, block.title:GetStringHeight() or 0)
@@ -630,7 +677,8 @@ local function Changes(entry, before)
   local changes = { done = {}, progress = {} }
   for _, data in ipairs(entry.lines) do
     local old = before.lines[data.key]
-    if old then
+    -- (the others' progress, GroupLead.lua: not yours)
+    if old and not data.group then
       if data.done and not old.done then
         changes.done[data.key] = true
       elseif not data.done and old.text ~= data.text then
@@ -652,6 +700,10 @@ local function Build()
   Core.SizeContent(profile.width, contentHeight or 1)
   local sections = {
     Core.DungeonSection(),
+    -- (near a dungeon's entrance: its quests, DungeonPrep.lua)
+    Core.PrepSection and Core.PrepSection() or { key = "prep", entries = {}, count = 0 },
+    -- (the quest the group's leader guides to, GroupLead.lua)
+    Core.LeadSection and Core.LeadSection() or { key = "lead", entries = {}, count = 0 },
     Core.QuestSection(),
     Core.AchievementSection(),
     Core.RecipeSection(),
@@ -1038,6 +1090,13 @@ local function Menu(block)
       if C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(entry.id) and _G.IsInGroup() then
         root:CreateButton("Share", function () Share(entry.id) end)
       end
+      if Core.CanGuide and Core.CanGuide() then
+        if Core.GuidedQuest() == entry.id then
+          root:CreateButton("Stop guiding the group", function () Core.GuideGroup(nil) end)
+        else
+          root:CreateButton("Guide the group here", function () Core.GuideGroup(entry.id) end)
+        end
+      end
       root:CreateButton("Stop tracking", function () Untrack(entry) end)
       if C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(entry.id) then
         root:CreateButton("Abandon", function () Abandon(entry.id) end)
@@ -1050,6 +1109,10 @@ local function Menu(block)
       root:CreateButton("Stop tracking", function () Untrack(entry) end)
     elseif entry.kind == "dungeon" then
       root:CreateButton("Start the run again", Core.RestartDungeonRun)
+    elseif entry.kind == "prep" then
+      root:CreateButton("Hide", function () Core.HidePrep(entry.id) end)
+    elseif entry.kind == "lead" or entry.kind == "groupMissing" then
+      Core.LeadMenu(root, entry)
     end
   end)
 end
@@ -1061,7 +1124,16 @@ function ClickEntry(block, button)
     Menu(block)
     return
   end
-  if entry.kind == "dungeon" then return end
+  if entry.kind == "lead" then
+    Core.ClickLead()
+    return
+  end
+  -- (the quests the others have: the menu, to ask for one)
+  if entry.kind == "groupMissing" then
+    Menu(block)
+    return
+  end
+  if entry.kind == "dungeon" or entry.kind == "prep" then return end
   if _G.IsModifiedClick("CHATLINK") and Link(entry) then return end
   if IsShiftKeyDown() then
     Untrack(entry)

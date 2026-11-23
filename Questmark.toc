@@ -35,6 +35,8 @@ Tracker\DungeonCard.lua
 Tracker\Items.lua
 Tracker\QuestMap.lua
 Tracker\QuestText.lua
+Tracker\Atlas.lua
+Tracker\DungeonPrep.lua
 Tracker\BookPad.lua
 Tracker\Tracker.lua
 Tracker\Waypoint.lua
@@ -45,7 +47,9 @@ Behavior\ZoneFilter.lua
 Behavior\QuestItems.lua
 Behavior\AutoQuests.lua
 Behavior\FollowNext.lua
+Behavior\GroupLead.lua
 Behavior\History.lua
+Behavior\Diary.lua
 Behavior\QuestieChoice.lua
 Animations\Animations.lua
 Animations\Dust.lua

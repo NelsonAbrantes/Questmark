@@ -101,6 +101,14 @@ local function JournalDungeon(name)
       if key then break end
     end
   end
+  -- (Stratholme: both sides are one dungeon to the game. The side from the
+  -- room you're in, as the journal addon tells them apart)
+  if not key and type(journal.WingFromText) == "function" then
+    for _, text in ipairs({ _G.GetSubZoneText and _G.GetSubZoneText(), _G.GetMinimapZoneText and _G.GetMinimapZoneText() }) do
+      local ok, wing = pcall(journal.WingFromText, text)
+      if ok and type(wing) == "string" and db[wing] then key = wing break end
+    end
+  end
   local dungeon = key and db[key]
   return type(dungeon) == "table" and dungeon or nil, journal, key
 end
@@ -335,14 +343,19 @@ end
 
 -- A boss's face: a journal addon's, else one learned, else the addon's own
 -- list (DungeonFaces.lua)
+-- Also true if the list is only the bosses learned before: maybe not all of
+-- them (a run doesn't end on it)
 local function BossList(name)
-  local bosses = GameJournal() or JournalAddon(name) or AtlasBosses(name) or Learned(name)
+  local bosses = GameJournal() or JournalAddon(name) or AtlasBosses(name)
+  local learned = not bosses
+  bosses = bosses or Learned(name)
   local faces, known = Faces(), Core.KNOWN_FACES or {}
   for _, boss in ipairs(bosses or {}) do
     boss.display = boss.display or faces[boss.name] or known[boss.name]
   end
-  return bosses
+  return bosses, learned and bosses ~= nil
 end
+local SetBosses -- (below)
 
 -- Icons for dungeons the journal addon doesn't know
 local OWN_ICONS = {
@@ -464,13 +477,13 @@ local function UpdateInside()
       Run().entry = EntrySnapshot()
       C_Timer.After(5, Core.ShareDungeonFaces)
     end
-    Run().bosses = BossList(Run().name) or Run().bosses
+    SetBosses(Run(), Run().name)
     -- Its icon, zone and levels, from the journal addon (and the wing's name)
     local dungeon, _, key = JournalDungeon(Run().name)
     if dungeon then
       if key and key ~= Run().name then
         Run().name = key
-        Run().bosses = BossList(key) or Run().bosses
+        SetBosses(Run(), key)
       end
       Run().icon = type(dungeon.icon) == "string" and dungeon.icon or nil
       Run().location = type(dungeon.location) == "string" and dungeon.location or nil
@@ -508,6 +521,7 @@ end
 local function Finish(run)
   if run.finished then return end
   run.finished = time()
+  run.finishedName = run.name
   if not run.name then return end
   local took, records = run.finished - run.start, Records()
   run.best = records[run.name]
@@ -515,14 +529,36 @@ local function Finish(run)
     records[run.name] = took
     run.newRecord = true
   end
+  -- (and in the day's diary, Behavior/Diary.lua)
+  if Core.DiaryDungeon then Core.DiaryDungeon(run) end
 end
 
 local function AllKilled(run)
-  if not run.bosses then return false end
+  -- (not on a list made from this run's kills or learned before: the
+  -- dungeon's other bosses may be missing from it)
+  if not run.bosses or run.guessed then return false end
   for _, boss in ipairs(run.bosses) do
     if not boss.rare and not run.killed[boss.name] then return false end
   end
   return true
+end
+
+-- Done too early, on a list that missed bosses (found later: the side of
+-- Stratholme you're on): going on, and the record it set taken back
+local function Unfinish(run)
+  -- (under the name it had then: it may have changed since)
+  local name = run.finishedName or run.name
+  if run.newRecord and name then Records()[name] = run.best end
+  if Core.DiaryUndoDungeon then Core.DiaryUndoDungeon(name, run.finished - run.start) end
+  run.finished, run.best, run.newRecord, run.finishedName = nil, nil, nil, nil
+end
+
+-- The dungeon's boss list put on the run (if one is found)
+function SetBosses(run, name)
+  local bosses, learned = BossList(name)
+  if not bosses then return end
+  run.bosses, run.guessed = bosses, learned or nil
+  if run.finished and not AllKilled(run) then Unfinish(run) end
 end
 
 -- True if a boss (or one of the creatures it's made of) is that creature
@@ -573,6 +609,8 @@ local function Killed(name, encounterID, npcID, fromEncounter)
     run.killedAt[boss.name] = time() - run.start
   elseif fromEncounter and name then
     -- A boss the list didn't have: added, and remembered for next time
+    -- (no list at all: the dungeon's other bosses aren't known)
+    if not run.bosses then run.guessed = true end
     run.killed[name] = true
     run.killedAt = run.killedAt or {}
     run.killedAt[name] = time() - run.start
@@ -655,7 +693,8 @@ local function LookForNewCopy(run)
           new.copy, new.entry = copy, entry
           -- (counted from the way in: the quests turned in since then too)
           new.questXP, new.questMoney = run.questXP, run.questMoney
-          new.bosses = BossList(run.name) or run.bosses
+          SetBosses(new, run.name)
+          if not new.bosses then new.bosses, new.guessed = run.bosses, run.guessed end
           new.icon, new.iconGray, new.location, new.levels = run.icon, run.iconGray, run.location, run.levels
           Core.Refresh()
         end
@@ -825,7 +864,7 @@ end
 function Core.RestartDungeonRun()
   if not inside then return end
   StartRun(InstanceID())
-  Run().bosses = BossList(Run().name)
+  SetBosses(Run(), Run().name)
   Core.Refresh()
 end
 
@@ -972,6 +1011,11 @@ events:SetScript("OnEvent", function (_, event, ...)
     C_Timer.After(0.5, UpdateInside)
     return
   end
+  if event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
+    -- (a new room: which side of Stratholme, while the dungeon isn't known)
+    if inside and run and not JournalDungeon(run.name) then UpdateInside() end
+    return
+  end
   if not inside or not run then return end
   if event == "ENCOUNTER_END" then
     local encounterID, name, _, _, success = ...
@@ -1032,7 +1076,8 @@ Core:OnChange(function (key)
   if key == "enable" then
     if not Core.trackerOn then return end -- (the tracker turned off)
     for _, event in ipairs({
-      "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_END", "BOSS_KILL",
+      "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
+      "ENCOUNTER_END", "BOSS_KILL",
       "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY", "QUEST_TURNED_IN",
       "PLAYER_REGEN_ENABLED", "LOOT_OPENED", "LOOT_READY",
     }) do

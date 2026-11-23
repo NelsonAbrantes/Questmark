@@ -9,6 +9,20 @@ Core.LSM = LibStub("LibSharedMedia-3.0")
 Core.listeners = {} -- filled while the files load, see Core:OnChange
 Core.ASSETS = "Interface\\AddOns\\Questmark\\Assets\\"
 
+-- The game's letters for its language: Russian, Korean and Chinese games have
+-- files of their own (the English ones show boxes there). The writing's
+-- (Friz Quadrata), and the titles' (Morpheus: in Russian its own; the others
+-- have none, the writing's then)
+do
+  local locale = GetLocale()
+  Core.FONT_TEXT = _G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+  Core.FONT_TITLE = (locale == "ruRU" and "Fonts\\MORPHEUS_CYR.TTF")
+    or ((locale == "koKR" or locale == "zhCN" or locale == "zhTW") and Core.FONT_TEXT)
+    or "Fonts\\MORPHEUS.TTF"
+  -- (Latin letters only: Barlow, Questmark's own, has no others)
+  Core.LATIN = not (locale == "ruRU" or locale == "koKR" or locale == "zhCN" or locale == "zhTW")
+end
+
 -- The Glass gold, for titles and highlights
 Core.GOLD = { r = 223 / 255, g = 186 / 255, b = 105 / 255 }
 
@@ -160,6 +174,8 @@ Core.defaults = {
     strikeCompleted = true,   -- finished objectives struck through
     instanceMode = "dungeon", -- in dungeons and raids: normal, hide, show or dungeon (only its quests)
     dungeonInfo = true,
+    groupLead = true,         -- in a party: everyone's progress, quests to ask for, the leader guiding everyone (with Questmark)
+    dungeonPrep = true,       -- near a dungeon's entrance: its quests, the ones you have and the ones missing
     dungeonAlwaysShow = true, -- in dungeons and raids the tracker doesn't fade out       -- in dungeons and raids: time, bosses, experience and gold of the run
     completeSound = true,     -- a sound when an objective or quest is done
     questItemMarks = true,    -- quest items no longer needed: said in their tooltip, marked in Baganator

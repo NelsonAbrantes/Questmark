@@ -9,8 +9,8 @@ local IsShiftKeyDown = IsShiftKeyDown
 ----
 -- Quests taken and given back by themselves (Options: Accept and turn in
 -- quests). Talking to someone takes the quests they offer and gives back the
--- ones ready. Never when a reward must be chosen, a quest asks for money, or
--- Shift is held. Off by default; nothing listens while it's off.
+-- ones ready. Never when a reward must be chosen, a quest asks for money,
+-- someone in the party isn't done with it, or Shift is held. Off by default; nothing listens while it's off.
 
 local events = CreateFrame("Frame")
 local EVENTS = { "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE" }
@@ -60,6 +60,11 @@ events:SetScript("OnEvent", function (_, event)
   elseif event == "QUEST_DETAIL" then
     -- (quests the game takes by itself need nothing)
     if not (_G.QuestGetAutoAccept and _G.QuestGetAutoAccept()) then Call("AcceptQuest") end
+  elseif (event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE")
+    and Core.GroupBehind and Core.GroupBehind(_G.GetQuestID and _G.GetQuestID()) then
+    -- (someone in the party isn't done with it: turned in by hand, if
+    -- you mean it. GroupLead.lua says who)
+    return
   elseif event == "QUEST_PROGRESS" then
     local money = _G.GetQuestMoneyToGet and _G.GetQuestMoneyToGet() or 0
     if _G.IsQuestCompletable and _G.IsQuestCompletable() and money == 0 then Call("CompleteQuest") end

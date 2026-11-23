@@ -24,7 +24,7 @@ local fonts = {
 }
 Core.fonts = fonts
 
-local FALLBACK = "Fonts\\FRIZQT__.TTF"
+local FALLBACK = Core.FONT_TEXT
 
 -- A font that comes with Questmark, so everyone has it: Barlow Condensed
 -- SemiBold (SIL Open Font License, see Assets/Fonts/OFL.txt). It shows in
@@ -40,6 +40,9 @@ end
 function Core:UpdateFonts()
   local profile = self.db.profile
   local path = self.LSM:Fetch(self.LSM.MediaType.FONT, profile.font, true) or FALLBACK
+  -- (Barlow has Latin letters only: in a Russian, Korean or Chinese game,
+  -- the game's own letters in its place)
+  if not Core.LATIN and profile.font == Core.FONT_NAME then path = FALLBACK end
   local flags = profile.fontFlags or ""
   local sizes = {
     header = profile.headerFontSize,

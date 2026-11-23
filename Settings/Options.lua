@@ -248,6 +248,8 @@ local function Build()
   }, "What the tracker does in dungeons and raids. Dungeon quests only: while you're inside, only the quests of that dungeon or raid show (the others stay tracked and come back when you leave)")
   Checkbox(category, "dungeonAlwaysShow", "Always visible in dungeons", "In dungeons and raids the tracker doesn't fade out (unless \"In dungeons and raids\" is set to hide it)")
   Checkbox(category, "dungeonInfo", "Dungeon info", "In dungeons and raids, a section at the top of the tracker with the run: how long it's taking, the bosses (killed ones checked), the experience and gold you've made and how many times you died. Right click it to start the run again")
+  Checkbox(category, "dungeonPrep", "Dungeon quests before going in", "Near a dungeon's entrance, its quests at the top of the tracker: the ones you have checked, the ones missing with where to get them. Needs the ForeverDungeonJournal addon. Right click it to hide it")
+  Checkbox(category, "groupLead", "Quests with the group", "In a party with others who have Questmark: under each quest, who else has it and how far they are; a word before turning in a quest someone isn't done with; the quests they have and you don't (right click to ask for one). The leader can right click a quest and choose Guide the group here: the others' navigation leads to it")
   Dropdown(category, "bossLoot", "Boss loot", {
     { "journal", "ForeverDungeonJournal" },
     { "atlasloot", "AtlasLoot" },
@@ -348,6 +350,11 @@ Core:OnChange(function (key)
     -- (with a name, that dungeon: /qm testcard deadmines)
     if input and input:lower():match("^%s*testcard") then
       Core.DungeonDemo(input:match("^%s*%S+%s*(.-)%s*$"))
+      return
+    end
+    -- /qm testgroup: the group's faces, flag and cards with made-up friends
+    if input and input:lower():match("^%s*testgroup") then
+      Core.GroupTest()
       return
     end
     -- /qm icons: the icon each dungeon's card gets

@@ -276,6 +276,14 @@ local function QuestItem(logIndex, complete)
   return { link = link, texture = texture, charges = charges, logIndex = logIndex }
 end
 
+-- In a party: the faces of the others who have it, how far they are
+-- (GroupLead.lua)
+local function GroupLines(lines, questID)
+  local faces = Core.GroupFaces and Core.GroupFaces(questID)
+  if faces then table.insert(lines, { key = "group", text = "", plain = true, group = true, faces = faces }) end
+  return lines
+end
+
 local function QuestEntry(questID, watchIndex)
   local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
   local info = logIndex and C_QuestLog.GetInfo(logIndex)
@@ -292,7 +300,7 @@ local function QuestEntry(questID, watchIndex)
     autoComplete = info and info.isAutoComplete and complete,
     super = super and true or false,
     zone = zoneOf[questID], watchIndex = watchIndex,
-    lines = QuestLines(questID, logIndex, info, complete, failed),
+    lines = GroupLines(QuestLines(questID, logIndex, info, complete, failed), questID),
     item = QuestItem(logIndex, complete),
   }
 end

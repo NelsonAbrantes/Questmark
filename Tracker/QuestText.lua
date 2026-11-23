@@ -105,27 +105,27 @@ local fonts = {}
 local function Font(key, file, size, spacing, flags)
   local font = CreateFont("QuestmarkBook"..key)
   font:SetFont(file, size, flags or "")
-  if not font:GetFont() then font:SetFont("Fonts\\FRIZQT__.TTF", size, flags or "") end
+  if not font:GetFont() then font:SetFont(Core.FONT_TEXT, size, flags or "") end
   font:SetShadowOffset(0, 0)
   font:SetJustifyH("LEFT")
   font:SetSpacing(spacing or 0)
   fonts[key] = font
 end
-Font("Title", "Fonts\\MORPHEUS.TTF", 24)
-Font("Heading", "Fonts\\MORPHEUS.TTF", 17)
-Font("Zone", "Fonts\\MORPHEUS.TTF", 15)
-Font("Text", "Fonts\\FRIZQT__.TTF", 12, 2)
-Font("Small", "Fonts\\FRIZQT__.TTF", 11)
-Font("Badge", "Fonts\\FRIZQT__.TTF", 10)
-Font("Stamp", "Fonts\\MORPHEUS.TTF", 21)
-Font("Button", "Fonts\\MORPHEUS.TTF", 13)
+Font("Title", Core.FONT_TITLE, 24)
+Font("Heading", Core.FONT_TITLE, 17)
+Font("Zone", Core.FONT_TITLE, 15)
+Font("Text", Core.FONT_TEXT, 12, 2)
+Font("Small", Core.FONT_TEXT, 11)
+Font("Badge", Core.FONT_TEXT, 10)
+Font("Stamp", Core.FONT_TITLE, 21)
+Font("Button", Core.FONT_TITLE, 13)
 -- (the quest list: the book's own letters, or a font chosen in the options)
-Font("List", "Fonts\\FRIZQT__.TTF", 12)
-Font("ListZone", "Fonts\\MORPHEUS.TTF", 15)
+Font("List", Core.FONT_TEXT, 12)
+Font("ListZone", Core.FONT_TITLE, 15)
 -- (the zones' counts and "No quests taken.", in dark ink: no dark edge)
-Font("ListPlain", "Fonts\\FRIZQT__.TTF", 12)
+Font("ListPlain", Core.FONT_TEXT, 12)
 -- (the rewards' names, in their quality's color: a thin dark edge to read on the paper)
-Font("Reward", "Fonts\\FRIZQT__.TTF", 11)
+Font("Reward", Core.FONT_TEXT, 11)
 fonts.Reward:SetShadowColor(0, 0, 0, 0.9)
 fonts.Reward:SetShadowOffset(1, -1)
 Core.bookFonts = fonts
@@ -279,7 +279,7 @@ local function QuestList()
         if not was or was.day ~= key then
           -- (no zone of the game starts with that first letter)
           outers[level] = { header = true, title = "\1done:"..key, day = key, quests = 0,
-            label = #key == 4 and key or date("%B", one.at), parent = outers[level - 1] }
+            label = #key == 4 and key or date("%B", one.at), parent = outers[level - 1], diary = key }
           done[#done + 1] = outers[level]
           -- (a new year: its months start again)
           for deeper = level + 1, #outers do outers[deeper] = nil end
@@ -293,7 +293,7 @@ local function QuestList()
           or date("%d %B", one.at):gsub("^0", "")
         -- (a day inside its month: a step in, shown while it's open)
         header = { header = true, title = "\1done:"..day, label = label, day = day, quests = 0,
-          parent = outers[#keys] }
+          parent = outers[#keys], diary = one.at and day or nil }
         done[#done + 1] = header
       end
       header.quests = header.quests + 1
@@ -540,15 +540,22 @@ local function UpdateButtons()
   pageButtons[3]:SetEnabled(C_QuestLog.IsPushableQuest and C_QuestLog.IsPushableQuest(questID)
     and _G.IsInGroup() and true or false)
   pageButtons[4]:SetEnabled((C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) and true or false)
+  -- (the group's leader: Guide group, GroupLead.lua)
+  if pageButtons[5] then
+    pageButtons[5]:SetShown(Core.CanGuide and Core.CanGuide() or false)
+    pageButtons[5].label:SetText(Core.GuidedQuest and Core.GuidedQuest() == questID and "Stop guiding" or "Guide group")
+  end
   local width = -BUTTON_GAP
   for _, button in ipairs(pageButtons) do
-    -- (the titles' font reaches past its own measure: room so no letter is cut)
-    local label = button.label
-    local textWidth = (label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth()) + 12
-    label:SetWidth(textWidth)
-    button:SetWidth(textWidth)
-    button:Paint()
-    width = width + button:GetWidth() + BUTTON_GAP
+    if button:IsShown() then
+      -- (the titles' font reaches past its own measure: room so no letter is cut)
+      local label = button.label
+      local textWidth = (label.GetUnboundedStringWidth and label:GetUnboundedStringWidth() or label:GetStringWidth()) + 12
+      label:SetWidth(textWidth)
+      button:SetWidth(textWidth)
+      button:Paint()
+      width = width + button:GetWidth() + BUTTON_GAP
+    end
   end
   bar:SetWidth(math.max(1, width))
 end
@@ -569,6 +576,11 @@ local function BuildButtons()
     end },
     { "Share", function (questID) Core.ShareQuest(questID) end },
     { "Abandon", function (questID) Core.AbandonQuest(questID) end },
+    { "Guide group", function (questID)
+      if not Core.GuideGroup then return end
+      Core.GuideGroup(Core.GuidedQuest() ~= questID and questID or nil)
+      _G.C_Timer.After(0.1, UpdateButtons)
+    end },
   }
   for i, action in ipairs(actions) do
     local button = CreateFrame("Button", nil, bar)
@@ -830,6 +842,10 @@ local function Row(i)
       local collapsed = Collapsed()
       collapsed[self.zone] = not collapsed[self.zone] or nil
       FillList()
+      -- (a day, month or year of the quests turned in: its diary on the
+      -- right page, Behavior/Diary.lua)
+      local page = self.diary and Core.DiaryPage and Core.DiaryPage(self.diary)
+      if page then Core.ShowDoneQuest(page) end
     elseif self.questID then
       -- Shift-click: its link in the chat box being written, as in the game
       if button == "LeftButton" and _G.IsModifiedClick("CHATLINK") then
@@ -1465,10 +1481,13 @@ do
 local RIBBON_SHOW = 0.34 -- how much of the ribbon shows (its forked end)
 local RIBBON_X = LEFT_X - 46 -- where, from the book's left (in the margin)
 local RIBBON_TOP = 6 -- from the book's top
-local function BuildRibbon()
+-- A ribbon at x from the book's left, in its color (r, g, b): open while
+-- IsOpen(), its tooltip saying where a click goes, Toggle on a click.
+-- Returns its Paint and its width
+local function Ribbon(x, color, IsOpen, openTip, closedTip, Toggle)
   local info = Atlas(GAME_RIBBON)
   local pageInfo = Atlas(GAME_LEFT)
-  if not (info and pageInfo) then return end
+  if not (info and pageInfo) then return nil end
   local scale = (BOOK_W / 2) / pageInfo.width * 0.8
   local width, height = info.width * scale, info.height * scale * RIBBON_SHOW
   -- (over the page, under the writing)
@@ -1478,22 +1497,25 @@ local function BuildRibbon()
   ribbon:SetTexCoord(info.leftTexCoord, info.rightTexCoord, b - (b - t) * RIBBON_SHOW, b)
   ribbon:SetDesaturated(true)
   ribbon:SetSize(width, height)
-  ribbon:SetPoint("TOP", book, "TOPLEFT", RIBBON_X, -RIBBON_TOP)
+  ribbon:SetPoint("TOP", book, "TOPLEFT", x, -RIBBON_TOP)
   shown[#shown + 1] = ribbon
   local button = CreateFrame("Button", nil, book)
   button:SetAllPoints(ribbon)
+  -- (its picture has room around it, most on the right: only the ribbon itself is under the
+  -- mouse, or the red one's took the green one's place)
+  button:SetHitRectInsets(width * 0.06, width * 0.5, 0, 0)
   local function Paint(over)
-    local light = (over or book.showDone) and 1 or 0.78
-    ribbon:SetVertexColor(0.85 * light, 0.24 * light, 0.16 * light)
+    local light = (over or IsOpen()) and 1 or 0.78
+    ribbon:SetVertexColor(color[1] * light, color[2] * light, color[3] * light)
     -- (a little longer while it's open)
-    ribbon:SetHeight(height + (book.showDone and 8 or 0))
+    ribbon:SetHeight(height + (IsOpen() and 8 or 0))
   end
   Paint(false)
   button:SetScript("OnEnter", function (self)
     Paint(true)
     local tooltip = _G.GameTooltip
     tooltip:SetOwner(self, "ANCHOR_RIGHT")
-    tooltip:SetText(book.showDone and "Back to the quests" or "Completed quests")
+    tooltip:SetText(IsOpen() and openTip or closedTip)
     tooltip:Show()
   end)
   button:SetScript("OnLeave", function ()
@@ -1501,16 +1523,35 @@ local function BuildRibbon()
     _G.GameTooltip:Hide()
   end)
   button:SetScript("OnClick", function (self)
-    book.showDone = not book.showDone or nil
-    -- (the right page empty, as when the book opens)
-    Select(nil)
+    Toggle()
     Sound("IG_ABILITY_PAGE_TURN")
-    list:SetVerticalScroll(0)
-    FillList()
     Paint(self:IsMouseOver())
     if self:IsMouseOver() then self:GetScript("OnEnter")(self) end
   end)
-  book.ribbonPaint = Paint
+  return Paint, width
+end
+
+local function BuildRibbon()
+  -- The quests turned in: red, over the left page's margin
+  local width
+  book.ribbonPaint, width = Ribbon(RIBBON_X, { 0.85, 0.24, 0.16 }, function () return book.showDone end,
+    "Back to the quests", "Completed quests", function ()
+      book.showDone = not book.showDone or nil
+      -- (the right page empty, as when the book opens)
+      Select(nil)
+      list:SetVerticalScroll(0)
+      FillList()
+    end)
+  -- The atlas (Tracker/Atlas.lua): green, beside the red one (its picture
+  -- has room on both sides: half its width apart).
+  -- Clicked, the right page shows it; again (or a quest opened), it goes
+  if Core.AtlasShow then
+    book.atlasPaint = Ribbon(RIBBON_X + (width or 60) * 0.48, { 0.22, 0.52, 0.30 }, function () return book.showAtlas end,
+      "Close the atlas", "Atlas", function ()
+        book.showAtlas = not book.showAtlas or nil
+        Select(nil)
+      end)
+  end
 end
 
 function Build()
@@ -2007,6 +2048,7 @@ function FillList()
       row.questID = item.questID
       row.history = item.history
       row.zone = item.header and item.title or nil
+      row.diary = item.header and item.diary or nil
       row.text:SetFontObject(item.header and fonts.ListZone or fonts.List)
       -- (the game's colors, with a thin black edge to read on the paper)
       row.text:SetShadowColor(0, 0, 0, 0.9)
@@ -2078,7 +2120,7 @@ function FillList()
   end
   if i == 0 then
     local row = Row(1)
-    row.questID, row.zone, row.history = nil, nil, nil
+    row.questID, row.zone, row.history, row.diary = nil, nil, nil, nil
     row.color = FADED
     row.toggle:Hide()
     row.count:Hide()
@@ -2107,7 +2149,7 @@ end
 -- The right page's writing (keep: where it was scrolled stays)
 function FillText(questID, keep, entry)
   -- A quest done: "Completed" stamped on the page (with a thump as it shows)
-  local done = entry and true or C_QuestLog.IsComplete(questID) and true or false
+  local done = (entry and not entry.diary) or (not entry and C_QuestLog.IsComplete(questID)) and true or false
   local wasShown = stamp:IsShown()
   stamp:SetShown(done)
   -- (during a page turn, once the page lands; the book opening, once its
@@ -2118,7 +2160,10 @@ function FillText(questID, keep, entry)
     if later then stamp:SetAlpha(0) else stamp.thump:Play() end
   end
   local kinds, icons, name
-  if entry then
+  if entry and entry.diary then
+    -- (a page of the diary: its day, and where you went)
+    kinds, icons, name = entry.sub or "", "", entry.title or ""
+  elseif entry then
     -- (turned in: when, and where)
     local last = (entry.times or 1) > 1 and entry.times.." times, last " or ""
     kinds, icons, name = entry.at and ("Turned in "..last..date("%d %b %Y", entry.at)) or "", "", entry.title or ""
@@ -2135,15 +2180,29 @@ function FillText(questID, keep, entry)
   local y = title:GetStringHeight() + (kinds ~= "" and tags:GetStringHeight() + 3 or 0) + GAP
 
   local description, objectives
-  if entry then
+  if entry and entry.diary then
+    description = entry.text
+  elseif entry then
     description, objectives = entry.text or "Turned in before the book kept the quests' text.", entry.objectives
   else
     description, objectives = QuestText(questID)
   end
   local texts = {
     { "Objectives", objectives },
-    { "Description", description or "The game didn't give this quest's text." },
+    { entry and entry.diary and (entry.heading or "Diary") or "Description",
+      description or "The game didn't give this quest's text." },
   }
+  -- (in a party: the others' faces beside "Objectives", over each their
+  -- objectives, GroupLead.lua)
+  if Core.DrawFaces then
+    local heading = parts[1].heading
+    if not book.groupFaces then
+      book.groupFaces = CreateFrame("Frame", nil, heading:GetParent())
+    end
+    local faces = not entry and objectives and objectives ~= "" and Core.GroupFaces(questID) or nil
+    local height, width = Core.DrawFaces(book.groupFaces, faces, 16, questID)
+    book.groupFaces:SetSize(math.max(1, width), math.max(1, height))
+  end
   for i, part in ipairs(parts) do
     local name, text = texts[i][1], texts[i][2]
     if text and text ~= "" then
@@ -2153,6 +2212,10 @@ function FillText(questID, keep, entry)
       part.text:SetText(text)
       part.heading:Show()
       part.text:Show()
+      if i == 1 and book.groupFaces then
+        book.groupFaces:ClearAllPoints()
+        book.groupFaces:SetPoint("LEFT", part.heading, "RIGHT", 8, 0)
+      end
       y = y + part.heading:GetStringHeight() + 4 + part.text:GetStringHeight() + GAP
     else
       part.heading:Hide()
@@ -2195,6 +2258,7 @@ function FillText(questID, keep, entry)
     rewards = Rewards(questID)
   end
   chooseText:SetText(not entry and "Choose one:" or entry.chosen and "You chose:" or "To choose from:")
+  rewardsHeading:SetText(entry and entry.diary and "Earned" or "Rewards")
   local line = {}
   -- (the experience with the tracker's own xp icon, in the experience bar's
   -- purple with a thin dark outline; the money with the game's coins: gold,
@@ -2291,6 +2355,11 @@ end
 function Select(questID)
   selected = questID
   book.openDone = nil
+  -- (a quest opened: the atlas goes)
+  if questID and book.showAtlas then
+    book.showAtlas = nil
+    if book.atlasPaint then book.atlasPaint(false) end
+  end
   if questID and OpenZoneOf(questID) and book:IsShown() then FillList() end
   if not questID then
     Core.HideQuestMap()
@@ -2298,12 +2367,16 @@ function Select(questID)
     mapView:Hide()
     if book.grip then book.grip:Show() end
     textScroll:Hide()
-    hint:Show()
+    -- (the atlas ribbon open: the atlas on the empty page, Tracker/Atlas.lua)
+    local atlas = book.showAtlas and Core.AtlasShow and Core.AtlasShow(rightContent)
+    if not atlas and Core.AtlasHide then Core.AtlasHide() end
+    hint:SetShown(not atlas)
     UpdateButtons()
     if book:IsShown() then FillList() end
     return
   end
   hint:Hide()
+  if Core.AtlasHide then Core.AtlasHide() end
   textScroll:Show()
   -- The writing the whole page; the map over it with Show map (and for a
   -- quest opened from the map)
@@ -2348,11 +2421,16 @@ function Core.ShowDoneQuest(entry)
   Sound("IG_ABILITY_PAGE_TURN")
   selected = nil
   book.openDone = entry
+  if book.showAtlas then
+    book.showAtlas = nil
+    if book.atlasPaint then book.atlasPaint(false) end
+  end
   Core.HideQuestMap()
   selectedHasMap = false
   mapView:Hide()
   if book.grip then book.grip:Show() end
   hint:Hide()
+  if Core.AtlasHide then Core.AtlasHide() end
   textScroll:Show()
   textScroll:ClearAllPoints()
   textScroll:SetPoint("TOPLEFT")
@@ -2395,8 +2473,9 @@ local function Open()
   if not book:IsShown() or closing then
     if not book:IsShown() then
       CloseZones()
-      book.showDone = nil
+      book.showDone, book.showAtlas = nil, nil
       if book.ribbonPaint then book.ribbonPaint(false) end
+      if book.atlasPaint then book.atlasPaint(false) end
     end
     book:Show()
     book:Raise()
@@ -2732,9 +2811,9 @@ local function UpdateFonts()
     fonts[key]:SetFont(chosen or own, size, flags or "")
     if not fonts[key]:GetFont() then fonts[key]:SetFont(own, size, flags or "") end
   end
-  ListFont("List", "Fonts\\FRIZQT__.TTF", list)
-  ListFont("ListZone", "Fonts\\MORPHEUS.TTF", list * 1.65)
-  ListFont("ListPlain", "Fonts\\FRIZQT__.TTF", list, "")
+  ListFont("List", Core.FONT_TEXT, list)
+  ListFont("ListZone", Core.FONT_TITLE, list * 1.65)
+  ListFont("ListPlain", Core.FONT_TEXT, list, "")
 end
 
 local function Refill()

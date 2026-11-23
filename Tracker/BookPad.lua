@@ -142,7 +142,7 @@ local function PageButtons()
   local list = {}
   if not (parts.buttons.bar and parts.buttons.bar:IsShown()) then return list end
   for _, button in ipairs(parts.buttons) do
-    if button:IsEnabled() then list[#list + 1] = button end
+    if button:IsShown() and button:IsEnabled() then list[#list + 1] = button end
   end
   return list
 end
