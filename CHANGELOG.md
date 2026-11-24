@@ -2,6 +2,17 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.4.1 (beta)
+
+- Quest together: a party mode, turned on from the tracker (/qm group)
+- Group progress shown next to each objective
+- The leader's focused quest guides the group
+- Book with a controller: stick scrolls, arrows move, camera stays still
+- Book with a controller: page marks, ribbons and atlas tabs
+- Atlas: islands like Skyborn shown, clearer reds
+- Dungeons with two sides: bosses shown from the start, side found sooner
+- Fix: group faces not showing
+
 ## 0.4.0 (beta)
 
 - Diary: a page for each day you play (red ribbon in the book)
