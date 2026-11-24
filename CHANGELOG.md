@@ -4,14 +4,22 @@ Versions are named `X.Y.Z`: `0.x` while in beta.
 
 ## 0.4.1 (beta)
 
-- Quest together: a party mode, turned on from the tracker (/qm group)
-- Group progress shown next to each objective
-- The leader's focused quest guides the group
-- Book with a controller: stick scrolls, arrows move, camera stays still
-- Book with a controller: page marks, ribbons and atlas tabs
-- Atlas: islands like Skyborn shown, clearer reds
-- Dungeons with two sides: bosses shown from the start, side found sooner
-- Fix: group faces not showing
+**New: Quest Together**
+- Optional party mode for groups who all use Questmark. Turn it on from the tracker or with `/qm group`.
+- Each objective shows your party members' progress.
+- When the party leader focuses a quest, the whole group is guided to it.
+
+**Controller support (quest book)**
+- The left stick scrolls; the D-pad moves between quests and pages.
+- The camera stays still while the book is open.
+- The selected page is now marked, and the ribbons and atlas tabs can be selected.
+
+**Improvements**
+- Atlas: islands such as Skyborn are now shown, with more consistent colors.
+- Two-sided dungeons (Blackrock Spire, Stratholme, Dire Maul): all bosses are shown on entry, and the side is detected sooner.
+
+**Fixes**
+- Party members' portraits now appear correctly.
 
 ## 0.4.0 (beta)
 
