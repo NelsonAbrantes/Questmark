@@ -246,13 +246,16 @@ local function QuestLines(questID, logIndex, info, complete, failed)
       text = _G.GetQuestLogCompletionText and logIndex and _G.GetQuestLogCompletionText(logIndex)
       if not Readable(text) or text == "" then text = _G.QUEST_WATCH_QUEST_READY or "Ready for turn-in" end
     end
-    table.insert(lines, { key = "complete", text = text, ready = true })
+    -- (questing together: who else is ready, GroupLead.lua)
+    table.insert(lines, { key = "complete", text = text, ready = true,
+      others = Core.GroupReady and Core.GroupReady(questID) })
     return lines
   end
   for i, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
     local text = objective.text
     if Readable(text) and text ~= "" then
-      local line = { key = i, text = text, done = objective.finished and true or false }
+      local line = { key = i, text = text, done = objective.finished and true or false,
+        others = Core.GroupObjective and Core.GroupObjective(questID, i) }
       if objective.type == "progressbar" and not objective.finished and _G.GetQuestProgressBarPercent then
         line.bar = _G.GetQuestProgressBarPercent(questID) or 0
       end
@@ -276,13 +279,6 @@ local function QuestItem(logIndex, complete)
   return { link = link, texture = texture, charges = charges, logIndex = logIndex }
 end
 
--- In a party: the faces of the others who have it, how far they are
--- (GroupLead.lua)
-local function GroupLines(lines, questID)
-  local faces = Core.GroupFaces and Core.GroupFaces(questID)
-  if faces then table.insert(lines, { key = "group", text = "", plain = true, group = true, faces = faces }) end
-  return lines
-end
 
 local function QuestEntry(questID, watchIndex)
   local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
@@ -300,7 +296,7 @@ local function QuestEntry(questID, watchIndex)
     autoComplete = info and info.isAutoComplete and complete,
     super = super and true or false,
     zone = zoneOf[questID], watchIndex = watchIndex,
-    lines = GroupLines(QuestLines(questID, logIndex, info, complete, failed), questID),
+    lines = QuestLines(questID, logIndex, info, complete, failed),
     item = QuestItem(logIndex, complete),
   }
 end

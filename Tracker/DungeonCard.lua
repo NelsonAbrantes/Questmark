@@ -263,6 +263,8 @@ local function Cell(i)
     local r, g, b = Core:CardColor()
     GameTooltip:AddLine(boss.name, r, g, b)
     if boss.rare then GameTooltip:AddLine("Rare", SILVER[1], SILVER[2], SILVER[3]) end
+    -- (the side isn't known yet: all sides' bosses are shown)
+    if boss.side then GameTooltip:AddLine(boss.side, 0.7, 0.7, 0.7) end
     if boss.killed then
       GameTooltip:AddLine(boss.killedAt and ("Killed at "..Clock(boss.killedAt)) or "Killed", 0.7, 0.7, 0.7)
     end    GameTooltip:Show()

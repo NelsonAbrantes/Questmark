@@ -554,8 +554,38 @@ local function Unfinish(run)
 end
 
 -- The dungeon's boss list put on the run (if one is found)
+-- A dungeon with sides (Blackrock Spire, Stratholme, Dire Maul...) whose
+-- side isn't known yet: the bosses of all its sides, each with its side, so
+-- they show from the start (and a kill tells the side, LookForWing)
+local function AllSides(run, name)
+  if not run or not run.id or JournalDungeon(name) then return nil end
+  local journal = _G.ForeverDungeonJournal_NS
+  local groups = type(journal) == "table" and journal.RunLogWingGroups
+  local wings = type(groups) == "table" and groups[run.id]
+  if type(wings) ~= "table" then return nil end
+  local all = {}
+  for _, wing in ipairs(wings) do
+    for _, boss in ipairs(JournalAddon(wing) or {}) do
+      boss.side = wing
+      all[#all + 1] = boss
+    end
+  end
+  if #all == 0 then return nil end
+  local faces, known = Faces(), Core.KNOWN_FACES or {}
+  for _, boss in ipairs(all) do
+    boss.display = boss.display or faces[boss.name] or known[boss.name]
+  end
+  return all
+end
+
 function SetBosses(run, name)
-  local bosses, learned = BossList(name)
+  local sides = AllSides(run, name)
+  local bosses, learned
+  if sides then
+    bosses = sides
+  else
+    bosses, learned = BossList(name)
+  end
   if not bosses then return end
   run.bosses, run.guessed = bosses, learned or nil
   if run.finished and not AllKilled(run) then Unfinish(run) end
@@ -983,7 +1013,7 @@ function Core.DungeonSection()
   end
   for _, boss in ipairs(run.bosses or {}) do
     table.insert(entry.bosses, {
-      name = boss.name, rare = boss.rare, display = boss.display,
+      name = boss.name, rare = boss.rare, display = boss.display, side = boss.side,
       killed = run.killed[boss.name] and true or false,
       killedAt = run.killedAt and run.killedAt[boss.name],
     })
@@ -1043,6 +1073,109 @@ end)
 
 -- The clock: once a second, only its line changes (and only inside: it
 -- stops outside, and starts again on going in or with the test card)
+
+-- A dungeon with two sides in one (Stratholme, Blackrock Spire): which
+-- side. First as the journal addon's own run log already knows it (its
+-- rooms, creatures and bosses). WoW: Forever
+-- names no room there and has no map at its doors, so: by a boss killed that
+-- only one side has (the journal addon's lists), or by the creatures around
+-- you, as the journal addon knows each side's (their IDs can be secret in a
+-- dungeon: then the bosses tell it). Looked for only until it's known.
+local WING_UNITS = { "target", "mouseover", "focus", "party1target", "party2target", "party3target", "party4target" }
+for i = 1, 20 do WING_UNITS[#WING_UNITS + 1] = "nameplate"..i end
+
+local function LookForWing(run)
+  if not run or not run.id or JournalDungeon(run.name) then return end
+  local journal = _G.ForeverDungeonJournal_NS
+  local groups = type(journal) == "table" and journal.RunLogWingGroups
+  local trash = type(journal) == "table" and journal.RunLogWingTrash
+  local wings = type(groups) == "table" and groups[run.id]
+  if type(wings) ~= "table" then return end
+  local function Found(wing)
+    run.name = wing
+    UpdateInside()
+    Core.Refresh()
+  end
+  -- (the journal addon's open run here, with its side)
+  local saved = _G.ForeverDungeonJournalCharacterDB
+  local log = type(saved) == "table" and type(saved.runLog) == "table" and saved.runLog.runs
+  for _, other in ipairs(type(log) == "table" and log or {}) do
+    if type(other) == "table" and not other.closed and other.map == run.id and type(other.dungeon) == "string" then
+      for _, wing in ipairs(wings) do
+        if wing == other.dungeon then
+          Found(wing)
+          return
+        end
+      end
+    end
+  end
+  -- (a boss killed of one side only)
+  local db = type(journal.DB) == "table" and journal.DB
+  if db then
+    local found
+    -- (the list of all sides: each boss knows its side)
+    for _, boss in ipairs(run.bosses or {}) do
+      if boss.side and run.killed and run.killed[boss.name] then
+        if found and found ~= boss.side then found = false break end
+        found = found or boss.side
+      end
+    end
+    -- (a kill the game named by its fight: the journal addon's side of it)
+    local encounters = type(journal.RUNLOG_ENCOUNTERS) == "table" and journal.RUNLOG_ENCOUNTERS
+    for _, boss in ipairs(found == nil and encounters and run.bosses or {}) do
+      local hit = boss.id and run.killed and run.killed[boss.name] and encounters[boss.id]
+      local side = type(hit) == "table" and hit[1]
+      for _, wing in ipairs(side and wings or {}) do
+        if wing == side then
+          if found and found ~= wing then found = false end
+          found = found == nil and wing or found
+        end
+      end
+    end
+    for _, wing in ipairs(found == nil and wings or {}) do
+      local dungeon = db[wing]
+      for _, boss in ipairs(type(dungeon) == "table" and type(dungeon.bosses) == "table" and dungeon.bosses or {}) do
+        if type(boss) == "table" and boss.name and run.killed and run.killed[boss.name] then
+          if found and found ~= wing then found = false break end
+          found = found == nil and wing or found
+        end
+      end
+      if found == false then break end
+    end
+    if found then
+      Found(found)
+      return
+    end
+  end
+  if type(trash) ~= "table" then return end
+  for _, unit in ipairs(WING_UNITS) do
+    -- (by its name when its ID is secret: the lists name each creature)
+    local name = _G.UnitExists(unit) and not _G.UnitIsPlayer(unit) and _G.UnitName(unit)
+    if name and Core.Readable(name) and type(name) == "string" then
+      for _, wing in ipairs(wings) do
+        for _, known in pairs(type(trash[wing]) == "table" and trash[wing] or {}) do
+          if known == name then
+            Found(wing)
+            return
+          end
+        end
+      end
+    end
+    local guid = _G.UnitExists(unit) and _G.UnitGUID(unit)
+    if guid and Core.Readable(guid) and type(guid) == "string" then
+      local npcID = tonumber((select(6, strsplit("-", guid))))
+      if npcID then
+        for _, wing in ipairs(wings) do
+          if type(trash[wing]) == "table" and trash[wing][npcID] then
+            Found(wing)
+            return
+          end
+        end
+      end
+    end
+  end
+end
+
 clock = CreateFrame("Frame")
 local sinceTick = 0
 clock:SetScript("OnUpdate", function (self, elapsed)
@@ -1061,6 +1194,7 @@ clock:SetScript("OnUpdate", function (self, elapsed)
   if Run() then
     Run().seen = time()
     LookForNewCopy(Run())
+    LookForWing(Run())
   end
   local run = Run()
   local clock = Core.DungeonClock()

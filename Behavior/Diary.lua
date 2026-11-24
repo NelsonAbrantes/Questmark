@@ -95,21 +95,34 @@ end
 
 local function Atlas()
   local char = Core.db.char
-  if not char.atlas then
-    char.atlas = {}
-    -- (the quests turned in before the atlas: their zone's name, found on
-    -- the continents' maps, once)
+  char.atlas = char.atlas or {}
+  if not char.atlasFilled then
+    char.atlasFilled = true
+    -- (the quests turned in before the atlas counted them: their zone's
+    -- name, found on the world's maps, once. Azeroth's (947): WoW: Forever's
+    -- list of every continent (946) is empty, so before this nothing was
+    -- found. Only the ones older than any counted already)
+    local since
+    for _, zone in pairs(char.atlas) do
+      if zone.first and (not since or zone.first < since) then since = zone.first end
+    end
     local byName = {}
     local Continent = _G.Enum and _G.Enum.UIMapType and _G.Enum.UIMapType.Continent or 2
     local Zone = _G.Enum and _G.Enum.UIMapType and _G.Enum.UIMapType.Zone or 3
-    for _, continent in ipairs(C_Map.GetMapChildrenInfo(946, Continent, true) or {}) do
+    local continents = C_Map.GetMapChildrenInfo(947, Continent) or {}
+    if #continents == 0 then continents = C_Map.GetMapChildrenInfo(946, Continent, true) or {} end
+    for _, continent in ipairs(continents) do
       for _, zone in ipairs(C_Map.GetMapChildrenInfo(continent.mapID, Zone) or {}) do
         byName[zone.name] = byName[zone.name] or zone.mapID
       end
     end
+    -- (and the islands on no continent, as the Skyborn's)
+    for _, zone in ipairs(C_Map.GetMapChildrenInfo(947, Zone) or {}) do
+      byName[zone.name] = byName[zone.name] or zone.mapID
+    end
     for _, done in ipairs(Core.QuestHistory and Core.QuestHistory() or {}) do
       local mapID = done.zone and byName[done.zone]
-      if mapID then
+      if mapID and (not since or (done.at and done.at < since)) then
         local zone = char.atlas[mapID] or { quests = 0 }
         char.atlas[mapID] = zone
         zone.quests = zone.quests + (done.times or 1)

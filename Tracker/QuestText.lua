@@ -1501,6 +1501,9 @@ local function Ribbon(x, color, IsOpen, openTip, closedTip, Toggle)
   shown[#shown + 1] = ribbon
   local button = CreateFrame("Button", nil, book)
   button:SetAllPoints(ribbon)
+  -- (for the controller, BookPad.lua: left to right)
+  book.ribbonButtons = book.ribbonButtons or {}
+  table.insert(book.ribbonButtons, button)
   -- (its picture has room around it, most on the right: only the ribbon itself is under the
   -- mouse, or the red one's took the green one's place)
   button:SetHitRectInsets(width * 0.06, width * 0.5, 0, 0)
@@ -2767,7 +2770,7 @@ function Core.BookParts()
   if not book then return nil end
   if not pad then
     pad = {
-      book = book, list = list, textScroll = textScroll, rows = rows,
+      book = book, list = list, textScroll = textScroll, rows = rows, ribbons = book.ribbonButtons or {},
       buttons = pageButtons, mapView = mapView, ToggleTrack = ToggleTrack,
       Selected = function () return selected end,
       MapBack = function ()

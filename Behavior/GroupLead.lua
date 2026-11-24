@@ -77,8 +77,33 @@ local function Party()
   return testing or (On() and IsInGroup() and not IsInRaid())
 end
 
+-- "Quest together" (right click Quests, or /qm group): what the others are
+-- doing shows only then. Off in each new group (someone met for one quest
+-- doesn't fill the tracker); the quests are still told in the background,
+-- so it's all there as soon as it's turned on.
+local together = false
+
+local function Together()
+  return testing or (together and Party())
+end
+
+-- Your realm, as addon messages write it ("Lightbane"). WoW: Forever's
+-- GetNormalizedRealmName gives nothing: from your own full name then
+local function MyRealm()
+  local realm = _G.GetNormalizedRealmName and _G.GetNormalizedRealmName()
+  if not (Core.Readable(realm) and realm and realm ~= "") then
+    local _, own = _G.UnitFullName("player")
+    realm = Core.Readable(own) and own or nil
+  end
+  if not realm or realm == "" then
+    local name = _G.GetRealmName and _G.GetRealmName()
+    realm = Core.Readable(name) and name and name:gsub("[%s%-]", "") or ""
+  end
+  return realm
+end
+
 local function Me()
-  return _G.UnitName("player").."-"..(_G.GetNormalizedRealmName() or "")
+  return _G.UnitName("player").."-"..MyRealm()
 end
 
 local function Short(full)
@@ -94,7 +119,7 @@ end
 local function FullName(unit)
   local name, realm = _G.UnitFullName(unit)
   if not (Core.Readable(name) and name) then return nil end
-  if not Core.Readable(realm) or not realm or realm == "" then realm = _G.GetNormalizedRealmName() or "" end
+  if not Core.Readable(realm) or not realm or realm == "" then realm = MyRealm() end
   return name.."-"..realm
 end
 
@@ -121,14 +146,21 @@ local function GroupUnit(full)
   return nil
 end
 
+-- (found among the group's units by full name: by the name alone, the game
+-- didn't know someone of your own realm written with it)
 local function InGroup(full)
   if full == Me() or testing then return true end
-  local unit = Unit(full)
-  return (_G.UnitInParty(unit) or _G.UnitInRaid(unit)) and true or false
+  local raid = IsInRaid()
+  local count = raid and _G.GetNumGroupMembers() or _G.GetNumSubgroupMembers()
+  for i = 1, count do
+    local unit = (raid and "raid" or "party")..i
+    if _G.UnitExists(unit) and FullName(unit) == full then return true end
+  end
+  return false
 end
 
 local function ClassColor(full)
-  local ok, _, class = pcall(_G.UnitClass, Unit(full))
+  local ok, _, class = pcall(_G.UnitClass, GroupUnit(full) or Unit(full))
   return ok and class and _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[class] or nil
 end
 
@@ -200,12 +232,9 @@ end
 -- little bar under it (how far), a check when done; faded if they don't
 -- have the quest. Over it: their objectives
 
-local function FaceTooltip(face)
-  local one = face.data
-  if not one then return end
-  local tooltip = _G.GameTooltip
-  tooltip:SetOwner(face, "ANCHOR_RIGHT")
-  tooltip:SetText(Colored(one.name))
+-- One person's lines: their name, then how far they are
+local function AddPerson(tooltip, one, questID, first)
+  if first then tooltip:SetText(Colored(one.name)) else tooltip:AddLine(" ") tooltip:AddLine(Colored(one.name)) end
   if one.state == "-" then
     tooltip:AddLine("Doesn't have this quest", 0.6, 0.6, 0.6)
   elseif one.state == "t" then
@@ -216,7 +245,7 @@ local function FaceTooltip(face)
     tooltip:AddLine("On it", 1, 1, 1)
   else
     -- (your objectives' words, with their numbers)
-    local mine = face.questID and C_QuestLog.GetQuestObjectives(face.questID) or {}
+    local mine = questID and C_QuestLog.GetQuestObjectives(questID) or {}
     for i, count in ipairs((Counts(one.state))) do
       local text = mine[i] and Core.Readable(mine[i].text) and mine[i].text
       local numbers = count[1].."/"..count[2]
@@ -229,6 +258,15 @@ local function FaceTooltip(face)
       tooltip:AddLine(text, done and 0.5 or 1, done and 0.5 or 1, done and 0.5 or 1)
     end
   end
+end
+
+-- Over a face: that person, or (overlapping faces by a quest) everyone
+local function FaceTooltip(face)
+  local one = face.data
+  if not one then return end
+  local tooltip = _G.GameTooltip
+  tooltip:SetOwner(face, "ANCHOR_RIGHT")
+  for i, person in ipairs(face.group or { one }) do AddPerson(tooltip, person, face.questID, i == 1) end
   tooltip:Show()
 end
 
@@ -278,17 +316,20 @@ end
 ---
 -- The faces of a list ({ name, state }) in a row on owner, at its top
 -- left, size big; nil hides them. Returns the row's height and width
-function Core.DrawFaces(owner, list, size, questID)
+-- (inline: on a quest's title line, overlapping like a chat group's
+-- pictures, the first on top, without bars: over a face, how far each is)
+function Core.DrawFaces(owner, list, size, questID, inline)
   owner.faces = owner.faces or {}
   local count = list and #list or 0
-  local step = size + 6
+  local step = inline and math.floor(size * 0.6 + 0.5) or size + 6
   for i = 1, count do
     local one = list[i]
     local face = owner.faces[i] or NewFace(owner)
     owner.faces[i] = face
-    face.data, face.questID = one, questID
+    face.data, face.questID, face.group = one, questID, inline and list or nil
     face:ClearAllPoints()
     face:SetPoint("TOPLEFT", owner, "TOPLEFT", (i - 1) * step + 2, -1)
+    if inline then face:SetFrameLevel(owner:GetFrameLevel() + count - i + 1) end
     Portrait(face, one.name, size)
     local missing, over = one.state == "-", Over(one.state)
     face.portrait:SetDesaturated(missing)
@@ -298,7 +339,7 @@ function Core.DrawFaces(owner, list, size, questID)
     face.check:ClearAllPoints()
     face.check:SetPoint("CENTER", face, "BOTTOMRIGHT", -size * 0.1, size * 0.1)
     local _, fraction = Counts(one.state)
-    local bar = not (over or missing or one.state == "o")
+    local bar = not (inline or over or missing or one.state == "o")
     face.back:SetShown(bar)
     face.bar:SetShown(bar and fraction > 0)
     if bar then
@@ -317,6 +358,7 @@ function Core.DrawFaces(owner, list, size, questID)
     owner.faces[i].data = nil
   end
   if count == 0 then return 0, 0 end
+  if inline then return size, size + (count - 1) * step + 4 end
   return size + 6, count * step
 end
 
@@ -374,21 +416,30 @@ local function NewCard()
   card.go:SetToAlpha(0)
   card.go:SetDuration(0.6)
   card.go:SetOrder(2)
-  fade:SetScript("OnFinished", function ()
+  local function Gone()
     card:Hide()
     for i, one in ipairs(cards) do
       if one == card then table.remove(cards, i) break end
     end
     spare[#spare + 1] = card
     Stack()
-  end)
+  end
+  fade:SetScript("OnFinished", Gone)
   card.fade = fade
+  -- (a card that does something: clicked, it does it and goes)
+  card:SetScript("OnMouseUp", function ()
+    local onClick = card.onClick
+    if not onClick then return end
+    card.fade:Stop()
+    Gone()
+    onClick()
+  end)
   return card
 end
 
 -- A card: about someone (full name; nil: icon instead), its title (in r, g,
 -- b) and words, for hold seconds
-local function Card(full, title, text, color, icon, hold)
+local function Card(full, title, text, color, icon, hold, onClick)
   if #cards >= 3 then
     cards[#cards].fade:Stop()
     cards[#cards]:Hide()
@@ -407,6 +458,8 @@ local function Card(full, title, text, color, icon, hold)
   card.text:SetText(text or "")
   card:SetHeight(math.max(48, 22 + card.title:GetStringHeight() + (text and card.text:GetStringHeight() or 0)))
   card.go:SetStartDelay(hold or CARD_HOLD)
+  card.onClick = onClick
+  card:EnableMouse(onClick and true or false)
   table.insert(cards, 1, card)
   Stack()
   card:Show()
@@ -482,7 +535,7 @@ end
 -- The faces under a quest: the others who have it (and, for the quest the
 -- group is guided to, faded, the ones who don't); nil: nobody
 function Core.GroupFaces(questID)
-  if not (Party() and questID) then return nil end
+  if not (Together() and questID) then return nil end
   local list = Others(questID)
   if lead and lead.questID == questID then
     for name, quests in pairs(others) do
@@ -498,7 +551,7 @@ end
 -- The ones not done with a quest yet: "Ana (3/8)", the first one's full
 -- name; nil if none
 function Core.GroupBehind(questID)
-  if not (Party() and questID and questID > 0) then return nil end
+  if not (Together() and questID and questID > 0) then return nil end
   local behind, first = {}, nil
   for _, one in ipairs(Others(questID)) do
     if not Over(one.state) then
@@ -709,9 +762,11 @@ end
 function Core.GuideGroup(questID)
   if questID and Core.CanGuide() then
     local title = C_QuestLog.GetTitleForQuestID(questID)
+    local already = lead and lead.mine
     lead = { questID = questID, title = Core.Readable(title) and title or ("Quest "..questID), leader = Me(), mine = true }
     SendLead(true)
-    Card(Me(), "You're guiding the group", lead.title)
+    -- (said once: then each quest you focus moves the group along)
+    if not already then Card(Me(), "You're guiding the group", lead.title) end
     Core.Refresh()
   elseif lead and lead.mine then
     Send("L:0")
@@ -728,7 +783,7 @@ end
 ---
 -- Can you guide the group (the flag and the book's button show then)
 function Core.CanGuide()
-  return testing or (On() and IsInGroup() and UnitIsGroupLeader("player") and true or false)
+  return testing or (Together() and UnitIsGroupLeader("player") and true or false)
 end
 
 ----
@@ -770,7 +825,7 @@ end
 function Core.GroupFlag(block)
   local entry = block.entry
   local questID = entry and entry.kind == "quest" and entry.id
-  local guided = questID and lead and lead.questID == questID and On()
+  local guided = questID and lead and lead.questID == questID and Together()
   local can = questID and Core.CanGuide()
   if not (guided or can) then
     if block.groupFlag then block.groupFlag:Hide() end
@@ -810,9 +865,83 @@ end
 
 local WORDS = { d = "ready to turn in", t = "turned in", o = "on it" }
 
+---
+-- By an objective, how far each of the others is: "S 3  R 9 [check]", in
+-- their class colors (the first letter of their name). nil: nobody, or not
+-- questing together
+local CHECK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:0|t"
+
+local function Tag(full)
+  local name = Short(full) or "?"
+  local first = name:match("^[%z\1-\127\194-\244][\128-\191]*") or name:sub(1, 1)
+  local color = ClassColor(full)
+  return (color and color.colorStr and "|c"..color.colorStr or "|cffdfba69")..first
+end
+
+function Core.GroupObjective(questID, index)
+  if not (Together() and questID) then return nil end
+  local chips = {}
+  for _, one in ipairs(Others(questID)) do
+    if Over(one.state) then
+      chips[#chips + 1] = Tag(one.name).."|r"..CHECK
+    else
+      local count = (Counts(one.state))[index]
+      if count then
+        chips[#chips + 1] = Tag(one.name).." "..count[1]..(count[1] >= count[2] and "|r"..CHECK or "|r")
+      end
+    end
+  end
+  return #chips > 0 and table.concat(chips, "  ") or nil
+end
+
+-- By a quest you can turn in: "all ready", or who isn't yet and how far
+function Core.GroupReady(questID)
+  if not (Together() and questID) then return nil end
+  local list, behind = Others(questID), {}
+  if #list == 0 then return nil end
+  for _, one in ipairs(list) do
+    if not Over(one.state) then
+      local _, _, have, need = Counts(one.state)
+      behind[#behind + 1] = Tag(one.name)..(need > 0 and (" "..have.."/"..need) or "").."|r"
+    end
+  end
+  if #behind == 0 then return "|cff66ff66all ready|r" end
+  return table.concat(behind, "  ")
+end
+
+-- The others in the party with Questmark (full names, sorted)
+local function Known()
+  local list = {}
+  if not Party() then return list end
+  for name in pairs(others) do
+    if InGroup(name) then list[#list + 1] = name end
+  end
+  table.sort(list)
+  return list
+end
+
+-- How many of a person's quests (that you have too) they can turn in
+local function ReadyCount(full)
+  local count = 0
+  for questID, state in pairs(others[full] or {}) do
+    if state == "d" and C_QuestLog.GetLogIndexForQuestID(questID) then count = count + 1 end
+  end
+  return count
+end
+
 function Core.LeadSection()
-  local section = { key = "lead", title = "Group", entries = {}, count = 0 }
-  if not On() or not (IsInGroup() or testing) then return section end
+  local section = { key = "lead", title = "Quest together", entries = {}, count = 0 }
+  local known = testing and {} or Known()
+  if not On() or not (Together() or #known > 0) then return section end
+  -- Off: one line, the switch (a click on it turns it on)
+  if not Together() then
+    section.title = "Quest together  |cff999999off|r"
+    section.closed = true
+    section.entries[1] = { kind = "groupMissing", key = "groupMissing", title = "", lines = {}, missing = {} }
+    section.count = 1
+    return section
+  end
+  section.title = "Quest together  |cff66ff66on|r"
   if lead then
     -- (the quest itself in the tracker, with its flag and faces, says it
     -- all: the part only when it isn't, or you don't follow yet)
@@ -844,8 +973,25 @@ function Core.LeadSection()
   end
   if Party() then
     local missing = Missing()
-    if #missing > 0 then
-      local lines = {}
+    -- Who's in it, and how many quests each can turn in
+    local who = {}
+    for _, name in ipairs(Known()) do
+      local ready = ReadyCount(name)
+      who[#who + 1] = Colored(name)..(ready > 0 and (" |cff999999- "..ready.." ready|r") or "")
+    end
+    local whoLine = #who > 0 and { key = "who", plain = true, text = table.concat(who, "   ") } or nil
+    -- Their quests you don't have: one line, opened by a click (the list
+    -- can be long)
+    local saved = Core.db.char.collapsedSections
+    local open = saved and saved.leadOpen
+    local words = #missing > 0 and (#missing.." quest"..(#missing > 1 and "s" or "").." you don't have") or nil
+    if #missing == 0 or not open then
+      section.entries[#section.entries + 1] = {
+        kind = "groupMissing", key = "groupMissing", lines = { whoLine },
+        title = words and (words.."  |cff999999(click)|r") or "Nothing new to ask for", missing = missing,
+      }
+    else
+      local lines = { whoLine }
       for i, one in ipairs(missing) do
         if i > MISSING_SHOWN then
           lines[#lines + 1] = { key = "more", text = "and "..(#missing - MISSING_SHOWN).." more (right click)", plain = true }
@@ -864,7 +1010,7 @@ function Core.LeadSection()
         }
       end
       section.entries[#section.entries + 1] = {
-        kind = "groupMissing", key = "groupMissing", title = "Quests you don't have", lines = lines, missing = missing,
+        kind = "groupMissing", key = "groupMissing", title = words, lines = lines, missing = missing,
       }
     end
   end
@@ -922,11 +1068,11 @@ local function OnQuests(sender, kind, body)
     if state == "-" then quests[questID] = nil else quests[questID] = state end
   end
   -- (the first time someone else has Questmark: what it does, once)
-  if new and not Core.db.global.groupTip then
-    Core.db.global.groupTip = true
+  -- (once per person each session, while not questing together: how to)
+  if new and not together then
     Card(sender, Short(sender).." has Questmark too",
-      "Under your quests, their faces show how far they are. Leader: the flag by a quest guides everyone there.",
-      nil, nil, 12)
+      "|cffffffffClick to quest together|r: see how far everyone is (or click their face by Quests).",
+      nil, nil, 15, function () Core.SetQuestTogether(true) end)
   end
   -- (someone new, or back after a reload: ours too)
   if kind == "Q?:" then Later(true, "Q!:") end
@@ -935,7 +1081,7 @@ local function OnQuests(sender, kind, body)
 end
 
 local function OnLead(sender, message)
-  if sender ~= LeaderName() then return end
+  if sender ~= LeaderName() or not Together() then return end
   local questID = tonumber(message:match("^L:(%d+)"))
   if not questID or questID == 0 then
     Drop()
@@ -965,7 +1111,7 @@ local took = {} -- the leader's quests taken, waiting to be said together
 local TOOK_WAIT = 3 -- seconds
 
 local function OnTook(sender, message)
-  if sender ~= LeaderName() then return end
+  if sender ~= LeaderName() or not Together() then return end
   local questID, mapID, x, y, title = message:match("^T:(%d+):(%d+):([%d%.]+):([%d%.]+):(.*)$")
   questID = tonumber(questID)
   if not questID or C_QuestLog.GetLogIndexForQuestID(questID)
@@ -991,7 +1137,14 @@ local function OnMessage(prefix, message, _, sender)
   if prefix ~= PREFIX or not On() then return end
   if issecretvalue and (issecretvalue(message) or issecretvalue(sender)) then return end
   if type(message) ~= "string" or type(sender) ~= "string" then return end
-  if not sender:find("-", 1, true) then sender = sender.."-"..(_G.GetNormalizedRealmName() or "") end
+  -- ("Name-Realm". WoW: Forever writes "Name Realm", or the name alone for
+  -- your own realm)
+  local name, realm = sender:match("^([^%s%-]+)[%s%-](.+)$")
+  if name then
+    sender = name.."-"..realm:gsub("[%s%-]", "")
+  else
+    sender = sender.."-"..MyRealm()
+  end
   if sender == Me() then return end
 
   local kind, body = message:match("^(Q[!?]?:)(.*)$")
@@ -1052,6 +1205,7 @@ events:SetScript("OnEvent", function (_, event, ...)
     OnMessage(...)
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_LEADER_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
     if not IsInGroup() and not testing then
+      together = false
       Drop()
       wipe(others)
       wipe(sent)
@@ -1081,6 +1235,15 @@ events:SetScript("OnEvent", function (_, event, ...)
       failed = false
       lastLead = nil
       Later(true, "Q!:")
+    end
+  elseif event == "SUPER_TRACKING_CHANGED" then
+    -- The leader questing together focuses a quest: the group is guided
+    -- there (the flag by a quest does the same)
+    if Together() and UnitIsGroupLeader("player") then
+      local questID = C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+      if questID and questID > 0 and questID ~= Core.GuidedQuest() and C_QuestLog.GetLogIndexForQuestID(questID) then
+        Core.GuideGroup(questID)
+      end
     end
   elseif event == "QUEST_DATA_LOAD_RESULT" then
     if IsInGroup() or testing then Core.Refresh() end
@@ -1119,7 +1282,7 @@ Core:OnChange(function (key)
     for _, event in ipairs({
       "CHAT_MSG_ADDON", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED", "PLAYER_ENTERING_WORLD",
       "PLAYER_REGEN_ENABLED", "QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN",
-      "QUEST_DATA_LOAD_RESULT", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_FINISHED",
+      "QUEST_DATA_LOAD_RESULT", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_FINISHED", "SUPER_TRACKING_CHANGED",
     }) do
       pcall(events.RegisterEvent, events, event)
     end
@@ -1135,6 +1298,77 @@ Core:OnChange(function (key)
     Core.Refresh()
   end
 end)
+
+---
+-- The list of their quests you don't have: opened or closed
+function Core.ToggleGroupMissing()
+  local saved = Core.db.char
+  saved.collapsedSections = saved.collapsedSections or {}
+  saved.collapsedSections.leadOpen = not saved.collapsedSections.leadOpen or nil
+  Core.Refresh()
+end
+
+---
+-- Quest together: on or off (nil: the other way); false if not in a party
+function Core.QuestTogether()
+  return Together() and true or false
+end
+
+function Core.SetQuestTogether(on)
+  if on == nil then on = not together end
+  if on and not Party() then
+    print("|cffdfba69Questmark|r: Quest together works in a party (not a raid).")
+    return
+  end
+  together = on and true or false
+  if not together then
+    if lead and lead.mine then Send("L:0") end
+    Drop()
+  else
+    Later(true, "Q?:")
+  end
+  Core.Refresh()
+end
+
+---
+-- The faces by the Quests title: the others in the party with Questmark,
+-- grey while not questing together, in color when you are; a click turns
+-- it on or off. Returns the room they take (0: none)
+local HEADER_FACE = 14
+function Core.GroupHeader(header)
+  local list = {}
+  if Party() and not testing then
+    for name in pairs(others) do
+      if InGroup(name) then list[#list + 1] = { name = name, state = together and "o" or "-" } end
+    end
+    table.sort(list, function (a, b) return a.name < b.name end)
+  end
+  local holder = header.groupFaces
+  if #list == 0 then
+    if holder then holder:Hide() end
+    return 0
+  end
+  if not holder then
+    holder = CreateFrame("Button", nil, header)
+    holder:RegisterForClicks("LeftButtonUp")
+    holder:SetScript("OnClick", function () Core.SetQuestTogether() end)
+    holder:SetScript("OnEnter", function (self)
+      local tooltip = _G.GameTooltip
+      tooltip:SetOwner(self, "ANCHOR_LEFT")
+      tooltip:SetText(together and "Questing together" or "Quest together")
+      tooltip:AddLine(together and "Click to stop seeing the group's progress"
+        or "Click to see how far everyone is in your quests", 1, 1, 1, true)
+      tooltip:Show()
+    end)
+    holder:SetScript("OnLeave", function () _G.GameTooltip:Hide() end)
+    header.groupFaces = holder
+  end
+  local _, width = Core.DrawFaces(holder, list, HEADER_FACE, nil, true)
+  for _, face in ipairs(holder.faces) do face:EnableMouse(false) end
+  holder:SetSize(width, HEADER_FACE)
+  holder:Show()
+  return width
+end
 
 ---
 -- /qm testgroup: two made-up friends with your own quests (one done with

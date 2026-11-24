@@ -166,7 +166,7 @@ end
 
 local headers = Pool(function ()
   local header = CreateFrame("Button", nil, content)
-  header:RegisterForClicks("LeftButtonUp")
+  header:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   header.text = header:CreateFontString(nil, "OVERLAY")
   header.text:SetFontObject(fonts.header)
   header.text:SetPoint("LEFT", 0, 0)
@@ -175,8 +175,23 @@ local headers = Pool(function ()
   header.toggle:SetSize(TOGGLE_SIZE + 2, TOGGLE_SIZE + 2)
   header.toggle:SetPoint("RIGHT", 0, 0)
   Core.CreateIcon(header.toggle, TOGGLE_SIZE)
-  header:SetScript("OnClick", function (self)
+  header:SetScript("OnClick", function (self, button)
+    -- (right click Quests in a party: Quest together, GroupLead.lua)
+    if button == "RightButton" then
+      if self.key == "quests" and Core.SetQuestTogether and _G.IsInGroup() and _G.MenuUtil then
+        _G.MenuUtil.CreateContextMenu(self, function (_, root)
+          root:CreateCheckbox("Quest together", Core.QuestTogether, function () Core.SetQuestTogether() end)
+        end)
+      end
+      return
+    end
     local collapsed = CollapsedSections()
+    -- (Quest together: its title is the switch, GroupLead.lua)
+    if self.key == "lead" then
+      collapsed.lead = nil
+      if Core.SetQuestTogether then Core.SetQuestTogether() end
+      return
+    end
     collapsed[self.key] = not collapsed[self.key] or nil
     Core:Changed("layout")
   end)
@@ -185,15 +200,22 @@ local headers = Pool(function ()
   return header
 end)
 
-local function PlaceHeader(key, text, y)
+local function PlaceHeader(key, text, y, closed)
   local header = Acquire(headers, key)
   header.key = key
   local height = Profile().headerFontSize + 6
   Glide(header, y)
   header:SetSize(content:GetWidth(), height)
-  header.text:SetWidth(content:GetWidth() - TOGGLE_SIZE - 6)
+  -- (Quests: the faces of the party's others with Questmark, GroupLead.lua)
+  local facesRoom = 0
+  if header.groupFaces then
+    header.groupFaces:Hide()
+  end
+  header.text:SetWidth(content:GetWidth() - TOGGLE_SIZE - 6 - facesRoom)
   header.text:SetText(text)
-  Core.SetIcon(header.toggle, CollapsedSections()[key] and "expand" or "collapse")
+  local shut = closed
+  if shut == nil then shut = CollapsedSections()[key] end
+  Core.SetIcon(header.toggle, shut and "expand" or "collapse")
   UpdateHeaderColor(header)
   return header, height
 end
@@ -428,6 +450,7 @@ end, function (block)
   Focus(block, false)
   block.id, block.entry = nil, nil
   if block.groupFlag then block.groupFlag:Hide() end
+  if block.faceRow and Core.DrawFaces then Core.DrawFaces(block.faceRow, nil, 0) end
   block:SetAlpha(1)
   block.gftFading = nil
   Core.ResetIcon(block.poi)
@@ -458,6 +481,25 @@ local function PlaceLine(block, data, y, width, justDone)
   line:ClearAllPoints()
   line:SetPoint("TOPLEFT", block, "TOPLEFT", INDENT, -y)
   local textWidth = width - INDENT - DASH_WIDTH
+  -- (questing together: the others' progress, right-aligned, GroupLead.lua)
+  if data.others then
+    if not line.others then
+      line.others = line:CreateFontString(nil, "OVERLAY")
+      line.others:SetFontObject(fonts.line)
+      line.others:SetJustifyH("RIGHT")
+      line.others:SetWordWrap(false)
+    end
+    line.others:ClearAllPoints()
+    line.others:SetPoint("TOPRIGHT", block, "TOPRIGHT", -2, -y)
+    line.others:SetWidth(0)
+    line.others:SetText(data.others)
+    local wide = math.min(line.others:GetStringWidth() or 0, textWidth * 0.45)
+    line.others:SetWidth(wide + 2)
+    line.others:Show()
+    textWidth = textWidth - wide - 8
+  elseif line.others then
+    line.others:Hide()
+  end
   line.text:SetWidth(textWidth)
   line.text:SetText(data.text)
   local textHeight = math.max(profile.lineFontSize, line.text:GetStringHeight() or 0)
@@ -623,7 +665,19 @@ local function PlaceBlock(entry, y, changes)
   Glide(block, y)
   -- (the group's flag by a quest's name, GroupLead.lua: room for it)
   local flagRoom = Core.GroupFlag and Core.GroupFlag(block) and 16 or 0
-  block.title:SetWidth(width - INDENT - flagRoom)
+  -- (and the others' faces, right of the name: no line of their own)
+  local faces = entry.faces
+  local faceSize = math.floor(Profile().headerFontSize + 1)
+  local facesRoom = 0
+  if (faces or block.faceRow) and Core.DrawFaces then
+    block.faceRow = block.faceRow or CreateFrame("Frame", nil, block)
+    local _, wide = Core.DrawFaces(block.faceRow, faces, faceSize, entry.id, true)
+    facesRoom = faces and wide + 2 or 0
+    block.faceRow:ClearAllPoints()
+    block.faceRow:SetPoint("TOPRIGHT", block, "TOPRIGHT", -flagRoom - 2, 0)
+    block.faceRow:SetSize(math.max(1, facesRoom), faceSize)
+  end
+  block.title:SetWidth(width - INDENT - flagRoom - facesRoom)
   block.title:SetText(entry.kind == "quest" and Core.QuestName(entry.title, entry.level) or entry.title)
   UpdateTitleColor(block)
   local titleHeight = math.max(Profile().headerFontSize, block.title:GetStringHeight() or 0)
@@ -759,14 +813,15 @@ local function Build()
           newSections[section.key] = true
           if not profile.hideSectionHeaders then
             if not first or not profile.hideMainHeader then y = y + (first and 4 or SECTION_GAP) end
-            local header, height = PlaceHeader(section.key, section.title, y)
+            local header, height = PlaceHeader(section.key, section.title, y,
+              section.key == "lead" and not (Core.QuestTogether and Core.QuestTogether()) or nil)
             y = y + height
             if not shownSections[section.key] and not quiet then
               table.insert(events, { "sectionAdded", header })
             end
           end
           first = false
-          if not collapsed[section.key] then
+          if not collapsed[section.key] and not (section.closed and not profile.hideSectionHeaders) then
             local previous -- the kind of the entry before
             for _, entry in ipairs(section.entries) do
               local kind = entry.kind
@@ -1128,9 +1183,10 @@ function ClickEntry(block, button)
     Core.ClickLead()
     return
   end
-  -- (the quests the others have: the menu, to ask for one)
+  -- (the quests the others have: the list opened or closed; right click,
+  -- the menu to ask for one)
   if entry.kind == "groupMissing" then
-    Menu(block)
+    if Core.ToggleGroupMissing and entry.missing and #entry.missing > 0 then Core.ToggleGroupMissing() end
     return
   end
   if entry.kind == "dungeon" or entry.kind == "prep" then return end
