@@ -246,16 +246,15 @@ local function QuestLines(questID, logIndex, info, complete, failed)
       text = _G.GetQuestLogCompletionText and logIndex and _G.GetQuestLogCompletionText(logIndex)
       if not Readable(text) or text == "" then text = _G.QUEST_WATCH_QUEST_READY or "Ready for turn-in" end
     end
-    -- (questing together: who else is ready, GroupLead.lua)
-    table.insert(lines, { key = "complete", text = text, ready = true,
-      others = Core.GroupReady and Core.GroupReady(questID) })
+    table.insert(lines, { key = "complete", text = text, ready = true })
     return lines
   end
   for i, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
     local text = objective.text
     if Readable(text) and text ~= "" then
-      local line = { key = i, text = text, done = objective.finished and true or false,
-        others = Core.GroupObjective and Core.GroupObjective(questID, i) }
+      -- (questing together: how far the others are shows on their faces,
+      -- by the quest's name)
+      local line = { key = i, text = text, done = objective.finished and true or false }
       if objective.type == "progressbar" and not objective.finished and _G.GetQuestProgressBarPercent then
         line.bar = _G.GetQuestProgressBarPercent(questID) or 0
       end
@@ -298,6 +297,8 @@ local function QuestEntry(questID, watchIndex)
     zone = zoneOf[questID], watchIndex = watchIndex,
     lines = QuestLines(questID, logIndex, info, complete, failed),
     item = QuestItem(logIndex, complete),
+    -- (questing together: the others' faces by the name, GroupLead.lua)
+    faces = Core.GroupFaces and Core.GroupFaces(questID),
   }
 end
 
@@ -381,6 +382,51 @@ function Core.QuestSection()
     quests = kept
   end
 
+  -- Quest together: the quest the group is guided to, first, under its own
+  -- title (always there, even with another quest focused)
+  local GROUP = "Group quest"
+  local groupID = Core.GroupQuestID and Core.GroupQuestID()
+  local groupQuest
+  if groupID then
+    for i, quest in ipairs(quests) do
+      if quest.id == groupID then
+        groupQuest = table.remove(quests, i)
+        break
+      end
+    end
+    groupQuest = groupQuest or QuestEntry(groupID, 0)
+    if groupQuest then zonesTracked[GROUP] = true end
+  end
+  -- (with a plan: "Group plan  2/4", and the quests next under it)
+  local plan = groupQuest and Core.GroupPlan and Core.GroupPlan()
+  local label
+  if plan then
+    local total = plan.done + #plan.ids
+    label = total > 1 and ("Group plan  |cff999999"..(plan.done + 1).."/"..total.."|r") or nil
+    local next = {}
+    for i = 2, math.min(#plan.ids, 3) do
+      local id = plan.ids[i]
+      local name = C_QuestLog.GetTitleForQuestID(id)
+      next[#next + 1] = (Readable(name) and name) or ("Quest "..id)
+    end
+    if #plan.ids > 3 then next[#next + 1] = "+"..(#plan.ids - 3) end
+    if #next > 0 then
+      groupQuest.lines = groupQuest.lines or {}
+      table.insert(groupQuest.lines, { key = "plan", plain = true, text = "|cff999999Then: "..table.concat(next, ", ").."|r" })
+    end
+  end
+  local function Pin(section)
+    if not groupQuest then return section end
+    section.count = section.count + 1
+    if Collapsed()[GROUP] then
+      table.insert(section.entries, 1, { kind = "collapsedZone", key = "c:"..GROUP, zone = GROUP, label = label, count = 1 })
+    else
+      table.insert(section.entries, 1, groupQuest)
+      table.insert(section.entries, 1, { kind = "zone", key = "z:"..GROUP, zone = GROUP, label = label })
+    end
+    return section
+  end
+
   local title = _G.TRACKER_HEADER_QUESTS or "Quests"
   if profile.questCount then
     local count, max = QuestCount()
@@ -394,11 +440,11 @@ function Core.QuestSection()
     end
   end
   local section = { key = "quests", title = title, entries = {}, count = #quests }
-  if #quests == 0 then return section end
+  if #quests == 0 then return Pin(section) end
 
   if not profile.zoneHeaders then
     for _, quest in ipairs(quests) do table.insert(section.entries, quest) end
-    return section
+    return Pin(section)
   end
 
   for _, quest in ipairs(quests) do
@@ -437,7 +483,7 @@ function Core.QuestSection()
   for zone in pairs(collapsed) do
     if not zonesTracked[zone] then collapsed[zone] = nil end
   end
-  return section
+  return Pin(section)
 end
 
 ----

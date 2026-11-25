@@ -65,6 +65,13 @@ local others = {} -- full name -> { [questID] = state }
 local sent = {} -- questID -> the state the others were last told
 local ourPoint -- the map marker put for the leader's quest
 local lastLead, lastPlace
+-- The group plan: the leader's quests in order, the first one the group is
+-- guided to; done, it moves on to the next (the others: theirPlan, as the
+-- leader told it)
+local plan, planDone = {}, 0 -- (yours, the leader)
+local theirPlan -- { ids, done, leader }
+local lastPlan
+local SendPlan -- (below)
 local ready = {} -- questID -> true: "everyone is ready" said
 local failed = false -- a message held back (an instance's fight): sent again after it
 local testing = false -- /qm testgroup: two made-up friends, to see how it looks alone
@@ -289,6 +296,11 @@ local function NewFace(owner)
   face.bar:SetColorTexture(1, 1, 1, 1)
   face.check = face:CreateTexture(nil, "OVERLAY", nil, 3)
   face.check:SetTexture(READY)
+  -- How far they are, under the face by a quest's name ("3/8")
+  face.count = face:CreateFontString(nil, "OVERLAY")
+  face.count:SetFont(_G.STANDARD_TEXT_FONT, 8, "OUTLINE")
+  face.count:SetPoint("TOP", face, "BOTTOM", 0, -1)
+  face.count:Hide()
   face:EnableMouse(true)
   -- (only for its tooltip: clicks go to what's under it)
   if face.SetMouseClickEnabled then face:SetMouseClickEnabled(false) end
@@ -321,7 +333,8 @@ end
 function Core.DrawFaces(owner, list, size, questID, inline)
   owner.faces = owner.faces or {}
   local count = list and #list or 0
-  local step = inline and math.floor(size * 0.6 + 0.5) or size + 6
+  -- (inline: side by side for a few, overlapping for more)
+  local step = inline and (count <= 3 and size + 10 or math.floor(size * 0.6 + 0.5)) or size + 6
   for i = 1, count do
     local one = list[i]
     local face = owner.faces[i] or NewFace(owner)
@@ -332,13 +345,22 @@ function Core.DrawFaces(owner, list, size, questID, inline)
     if inline then face:SetFrameLevel(owner:GetFrameLevel() + count - i + 1) end
     Portrait(face, one.name, size)
     local missing, over = one.state == "-", Over(one.state)
-    face.portrait:SetDesaturated(missing)
-    face:SetAlpha(missing and 0.45 or 1)
+    -- (inline: who's behind stands out: in grey, how far under it; who's
+    -- done in color with the check)
+    local behind = inline and not (over or missing)
+    face.portrait:SetDesaturated(missing or behind)
+    face:SetAlpha(missing and 0.45 or (behind and 0.75 or 1))
+    face.ring:SetAlpha(behind and 0.35 or 1)
     face.check:SetShown(over)
     face.check:SetSize(size * 0.75, size * 0.75)
     face.check:ClearAllPoints()
     face.check:SetPoint("CENTER", face, "BOTTOMRIGHT", -size * 0.1, size * 0.1)
-    local _, fraction = Counts(one.state)
+    local _, fraction, have, need = Counts(one.state)
+    face.count:SetShown(behind and need > 0)
+    if behind and need > 0 then
+      face.count:SetText(have.."/"..need)
+      face.count:SetTextColor(0.85, 0.85, 0.85)
+    end
     local bar = not (inline or over or missing or one.state == "o")
     face.back:SetShown(bar)
     face.bar:SetShown(bar and fraction > 0)
@@ -468,6 +490,7 @@ local function Card(full, title, text, color, icon, hold, onClick)
 end
 
 local GREEN, RED = { 0.4, 1, 0.4 }, { 1, 0.35, 0.3 }
+local leftCardAt -- when the "back to the group quest" card last showed
 
 ----
 -- Your quests, told to the others
@@ -496,6 +519,77 @@ local function SendItems(head, items)
   if message ~= "Q:" then Send(message) end
 end
 
+----
+-- "She still needs this": questing together, when you finish an objective
+-- someone else hasn't (keep an eye out for theirs: each one loots their
+-- own), or they finish one you haven't. Once per objective and person.
+
+local told = {} -- "questID:objective:name" -> true
+
+-- An objective's words without its numbers ("5/8 Raptor Egg" -> "Raptor Egg")
+local function ObjectiveName(questID, index)
+  local objective = (C_QuestLog.GetQuestObjectives(questID) or {})[index]
+  local text = objective and objective.text
+  if not (Core.Readable(text) and type(text) == "string") then return nil end
+  text = text:gsub("^%s*%d+%s*/%s*%d+%s*", ""):gsub("%s*:?%s*%d+%s*/%s*%d+%s*$", "")
+  return text ~= "" and text or nil
+end
+
+-- Each objective done or not ({ got, wanted } per objective); a quest all
+-- done ("d") from what was known of it before
+local function Done(state, before)
+  local list = Counts(state)
+  if #list == 0 and Over(state) then
+    list = {}
+    for i, count in ipairs(Counts(before)) do list[i] = { count[2], count[2] } end
+  end
+  return list
+end
+
+-- An objective done by `who` (nil: you) in a quest: who's still behind on it
+local function Behind(questID, index, who)
+  local behind = {}
+  if who then
+    local mine = Counts(State(questID))[index]
+    if mine and mine[1] < mine[2] then behind[#behind + 1] = { name = nil, got = mine[1], wanted = mine[2] } end
+  else
+    for name, quests in pairs(others) do
+      local count = InGroup(name) and quests[questID] and Counts(quests[questID])[index]
+      if count and count[1] < count[2] then behind[#behind + 1] = { name = name, got = count[1], wanted = count[2] } end
+    end
+  end
+  return behind
+end
+
+local function Notice(questID, index, who)
+  if not (Together() and C_QuestLog.GetLogIndexForQuestID(questID)) then return end
+  local thing = ObjectiveName(questID, index)
+  if not thing then return end
+  for _, one in ipairs(Behind(questID, index, who)) do
+    local key = (who and "done:" or "needs:")..questID..":"..index..":"..(who or one.name)
+    if not told[key] then
+      told[key] = true
+      if who then
+        Card(who, Short(who).." is done: "..thing, "You: "..one.got.."/"..one.wanted, GREEN)
+      else
+        Card(one.name, Short(one.name).." still needs "..thing,
+          "|cffffffff"..one.got.."/"..one.wanted.."|r  - yours is done: keep an eye out")
+      end
+    end
+  end
+end
+
+-- What changed in a quest's state: the objectives just done
+local function JustDone(before, now)
+  if not before or before == "-" or before == "t" or not now then return {} end
+  local old, new, list = Counts(before), Done(now, before), {}
+  for i, count in ipairs(new) do
+    local was = old[i]
+    if was and was[1] < was[2] and count[1] >= count[2] then list[#list + 1] = i end
+  end
+  return list
+end
+
 -- All of them (head "Q?:" asks the others for theirs too), or the changes
 local function SendQuests(all, head)
   if not Party() then return end
@@ -512,6 +606,10 @@ local function SendQuests(all, head)
       end
     end
     if #items == 0 then return false end
+  end
+  -- (your objectives just done: who's still behind on them)
+  for questID, state in pairs(now) do
+    for _, index in ipairs(JustDone(sent[questID], state)) do Notice(questID, index, nil) end
   end
   sent = now
   SendItems(all and (head or "Q!:") or "Q:", items)
@@ -616,6 +714,68 @@ local function Missing()
     return a.questID < b.questID
   end)
   return list
+end
+
+-- Your quests none of the others in the party has (to drop the old ones
+-- and quest the same). Not the ones done: those are turned in instead.
+-- Empty until someone's list is known.
+local function OnlyMine()
+  local list, names = {}, {}
+  for name, quests in pairs(others) do
+    if InGroup(name) then names[#names + 1] = quests end
+  end
+  if #names == 0 then return list end
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    local questID = info and not info.isHeader and not info.isHidden and not info.isTask and info.questID
+    if questID and not C_QuestLog.IsComplete(questID) then
+      local someone = false
+      for _, quests in ipairs(names) do
+        local state = quests[questID]
+        if state and state ~= "-" and state ~= "t" then someone = true break end
+      end
+      if not someone then list[#list + 1] = { questID = questID, title = Title(questID) } end
+    end
+  end
+  table.sort(list, function (a, b) return (a.title or "") < (b.title or "") end)
+  return list
+end
+
+-- Drops a list of quests at once (asked first)
+_G.StaticPopupDialogs.QUESTMARK_ABANDON_ALL = {
+  text = "Abandon %s quests only you have?\n\nThe others in your party don't have them.",
+  button1 = "Abandon",
+  button2 = "Cancel",
+  OnAccept = function (_, data)
+    for _, questID in ipairs(data or {}) do
+      if C_QuestLog.GetLogIndexForQuestID(questID)
+        and (C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(questID)) then
+        C_QuestLog.SetSelectedQuest(questID)
+        C_QuestLog.SetAbandonQuest()
+        C_QuestLog.AbandonQuest()
+      end
+    end
+  end,
+  timeout = 0,
+  whileDead = true,
+  hideOnEscape = true,
+  showAlert = true,
+  preferredIndex = 3,
+}
+
+function Core.AbandonOnlyMine(list)
+  local ids = {}
+  for _, one in ipairs(list or {}) do ids[#ids + 1] = one.questID end
+  if #ids == 0 then return end
+  _G.StaticPopup_Show("QUESTMARK_ABANDON_ALL", #ids, nil, ids)
+end
+
+-- The list of your quests the others don't have: opened or closed
+function Core.ToggleGroupOnly()
+  local saved = Core.db.char
+  saved.collapsedSections = saved.collapsedSections or {}
+  saved.collapsedSections.onlyOpen = not saved.collapsedSections.onlyOpen or nil
+  Core.Refresh()
 end
 
 ---
@@ -745,6 +905,7 @@ local function Later(all, head)
     local changed = SendQuests(sendAll, sendHead) or heard
     heard = false
     SendLead(false)
+    SendPlan(false)
     CheckReady()
     if changed or lead then Core.Refresh() end
   end)
@@ -754,6 +915,7 @@ local function Drop()
   if not lead then return end
   ClearPoint()
   lead, lastLead = nil, nil
+  theirPlan = nil
   Core.Refresh()
 end
 
@@ -771,6 +933,11 @@ function Core.GuideGroup(questID)
   elseif lead and lead.mine then
     Send("L:0")
     Drop()
+    if #plan > 0 then
+      wipe(plan)
+      planDone = 0
+      SendPlan(true)
+    end
   end
 end
 
@@ -787,6 +954,125 @@ function Core.CanGuide()
 end
 
 ----
+-- The group plan
+
+SendPlan = function (force)
+  if not Core.CanGuide() then return end
+  -- (kept for a /reload: the plan comes back with Quest together)
+  if not testing then
+    Core.db.char.groupPlan = #plan > 0 and { ids = CopyTable(plan), done = planDone } or nil
+  end
+  local message = "P:"..planDone..":"..table.concat(plan, ",")
+  if force or message ~= lastPlan then
+    lastPlan = message
+    if not Send(message) then lastPlan = nil end
+  end
+end
+
+local function InPlan(questID)
+  for i, id in ipairs(plan) do
+    if id == questID then return i end
+  end
+end
+
+-- The plan as the tracker shows it: { ids, done } (nil: none)
+function Core.GroupPlan()
+  if not Together() then return nil end
+  if lead and lead.mine and #plan > 0 then return { ids = plan, done = planDone } end
+  if theirPlan and lead and lead.leader == theirPlan.leader and #theirPlan.ids > 0 then return theirPlan end
+  return nil
+end
+
+function Core.InGroupPlan(questID)
+  return InPlan(questID) ~= nil
+end
+
+-- The leader: a quest added at the end (the first one: the group guided
+-- there), or taken out
+function Core.PlanAdd(questID)
+  if not (questID and Core.CanGuide()) or InPlan(questID) then return end
+  if #plan == 0 then planDone = 0 end
+  table.insert(plan, questID)
+  if #plan == 1 then Core.GuideGroup(questID) end
+  SendPlan(true)
+  Core.Refresh()
+end
+
+function Core.PlanRemove(questID)
+  local at = InPlan(questID)
+  if not at then return end
+  table.remove(plan, at)
+  if at == 1 then
+    if plan[1] then Core.GuideGroup(plan[1]) else Core.GuideGroup(nil) end
+  end
+  if #plan == 0 then planDone = 0 end
+  SendPlan(true)
+  Core.Refresh()
+end
+
+function Core.PlanClear()
+  wipe(plan)
+  planDone = 0
+  Core.GuideGroup(nil)
+  SendPlan(true)
+  Core.Refresh()
+end
+
+-- In or out of the plan (the flag, the book's button, the menu); the quest
+-- only focused (no plan): not guided any more
+function Core.PlanToggle(questID)
+  if InPlan(questID) then
+    Core.PlanRemove(questID)
+  elseif #plan == 0 and lead and lead.mine and lead.questID == questID then
+    Core.GuideGroup(nil)
+  else
+    Core.PlanAdd(questID)
+  end
+end
+
+-- A quest of the plan gone from the leader's log: turned in, the plan moves
+-- on (the end of it: said to everyone); abandoned, only taken out
+local function PlanGone(questID)
+  local at = InPlan(questID)
+  if not at then return end
+  local turnedIn = C_QuestLog.IsQuestFlaggedCompleted and C_QuestLog.IsQuestFlaggedCompleted(questID)
+  table.remove(plan, at)
+  if turnedIn then planDone = planDone + 1 end
+  if #plan == 0 then
+    local done = planDone
+    planDone = 0
+    Core.GuideGroup(nil)
+    if done > 0 then
+      Card(nil, "Group plan done!", done.." quest"..(done > 1 and "s" or "").." together", GREEN, READY, 8)
+    end
+  elseif at == 1 then
+    Core.GuideGroup(plan[1])
+  end
+  SendPlan(true)
+  Core.Refresh()
+end
+
+-- The others: the leader's plan heard
+local function OnPlan(sender, message)
+  if sender ~= LeaderName() or not Together() then return end
+  local done, list = message:match("^P:(%d+):(.*)$")
+  if not done then return end
+  local ids = {}
+  for id in list:gmatch("%d+") do ids[#ids + 1] = tonumber(id) end
+  local before = theirPlan
+  if #ids == 0 then
+    theirPlan = nil
+    -- (the end of it, with quests done)
+    if before and #before.ids > 0 then
+      Card(sender, "Group plan done!", (before.done + 1).." quests together", GREEN, nil, 8)
+    end
+  else
+    theirPlan = { ids = ids, done = tonumber(done) or 0, leader = sender }
+  end
+  Core.Refresh()
+end
+
+----
 -- The flag by a quest's name in the tracker: the guided quest's, for
 -- everyone; the leader's, over any quest (a click guides the group there)
 
@@ -794,17 +1080,26 @@ local function FlagTooltip(flag)
   local questID = flag.questID
   local tooltip = _G.GameTooltip
   tooltip:SetOwner(flag, "ANCHOR_RIGHT")
-  if lead and lead.questID == questID then
+  local at = InPlan(questID)
+  if at and at > 1 then
+    tooltip:SetText("Group plan: step "..(planDone + at))
+    tooltip:AddLine("Click to take it out of the plan", 1, 1, 1)
+  elseif lead and lead.questID == questID then
     if lead.mine then
       tooltip:SetText("You're guiding the group here")
-      tooltip:AddLine("Click to stop", 1, 1, 1)
+      tooltip:AddLine(at and "Click to take it out of the plan" or "Click to stop", 1, 1, 1)
     else
       tooltip:SetText(Short(lead.leader).." is guiding the group here")
       if not following[lead.leader] then tooltip:AddLine("Click to follow", 1, 1, 1) end
     end
   else
-    tooltip:SetText("Guide the group here")
-    tooltip:AddLine("Everyone with Questmark is asked to follow: their navigation leads here", 1, 1, 1, true)
+    if #plan > 0 then
+      tooltip:SetText("Add to the group plan")
+      tooltip:AddLine("Done with the quests before it, the group is guided here next", 1, 1, 1, true)
+    else
+      tooltip:SetText("Guide the group here")
+      tooltip:AddLine("Everyone with Questmark is asked to follow: their navigation leads here. Click more quests to make a plan: one after another", 1, 1, 1, true)
+    end
   end
   tooltip:Show()
 end
@@ -814,7 +1109,7 @@ local function FlagClick(flag)
   if lead and lead.questID == questID and not lead.mine then
     Core.ClickLead()
   elseif Core.CanGuide() then
-    Core.GuideGroup(Core.GuidedQuest() ~= questID and questID or nil)
+    Core.PlanToggle(questID)
   end
   _G.GameTooltip:Hide()
 end
@@ -826,11 +1121,23 @@ function Core.GroupFlag(block)
   local entry = block.entry
   local questID = entry and entry.kind == "quest" and entry.id
   local guided = questID and lead and lead.questID == questID and Together()
+  local planned = questID and Core.CanGuide() and InPlan(questID) and true or false
   local can = questID and Core.CanGuide()
-  if not (guided or can) then
+  -- (the leader's on the other quests only with the mouse over: the faces
+  -- by the name make room for it then)
+  local hovered = block:IsMouseOver() or (block.groupFlag and block.groupFlag:IsMouseOver())
+  local function Room(on)
+    if block.faceRow then
+      block.faceRow:ClearAllPoints()
+      block.faceRow:SetPoint("TOPRIGHT", block, "TOPRIGHT", on and -18 or -2, 0)
+    end
+  end
+  if not (guided or planned or (can and hovered)) then
     if block.groupFlag then block.groupFlag:Hide() end
+    Room(false)
     return false
   end
+  Room(true)
   local flag = block.groupFlag
   if not flag then
     flag = CreateFrame("Button", nil, block)
@@ -856,7 +1163,7 @@ function Core.GroupFlag(block)
   flag:Show()
   local r, g, b = Core:TitleColor()
   if flag:IsMouseOver() then r, g, b = Core.Lighter(r, g, b, 0.4) end
-  flag.icon:SetVertexColor(r, g, b, guided and 1 or (block:IsMouseOver() and 0.8 or 0.45))
+  flag.icon:SetVertexColor(r, g, b, guided and 1 or ((block:IsMouseOver() or planned) and 0.8 or 0.45))
   return true
 end
 
@@ -945,7 +1252,7 @@ function Core.LeadSection()
   if lead then
     -- (the quest itself in the tracker, with its flag and faces, says it
     -- all: the part only when it isn't, or you don't follow yet)
-    local inTracker = false
+    local inTracker = Core.GroupQuestID() == lead.questID
     for _, questID in ipairs(Core.ShownQuestIDs()) do
       if questID == lead.questID then inTracker = true end
     end
@@ -1013,9 +1320,43 @@ function Core.LeadSection()
         kind = "groupMissing", key = "groupMissing", title = words, lines = lines, missing = missing,
       }
     end
+    -- Yours they don't have: one line, opened by a click; a click on one
+    -- abandons it (the game asks first), right click: all of them
+    local only = OnlyMine()
+    if #only > 0 then
+      local onlyWords = #only.." quest"..(#only > 1 and "s" or "").." only you have"
+      local lines = {}
+      if saved and saved.onlyOpen then
+        for i, one in ipairs(only) do
+          if i > MISSING_SHOWN then
+            lines[#lines + 1] = { key = "more", text = "and "..(#only - MISSING_SHOWN).." more (right click)", plain = true }
+            break
+          end
+          local questID = one.questID
+          lines[#lines + 1] = {
+            key = "o"..questID, plain = true, text = one.title or ("Quest "..questID),
+            onClick = function () Core.AbandonQuest(questID) end,
+            tip = "Click to abandon it\n(right click: abandon all of them)",
+          }
+        end
+      end
+      section.entries[#section.entries + 1] = {
+        kind = "groupOnly", key = "groupOnly", lines = lines, only = only,
+        title = onlyWords..((saved and saved.onlyOpen) and "" or "  |cff999999(click)|r"),
+      }
+    end
   end
   section.count = #section.entries
   return section
+end
+
+---
+-- The quest the group is guided to, while questing together and following
+-- it (or guiding): first in the tracker (Tracker/Data.lua)
+function Core.GroupQuestID()
+  if not (Together() and lead) then return nil end
+  if not (lead.mine or following[lead.leader]) then return nil end
+  return C_QuestLog.GetLogIndexForQuestID(lead.questID) and lead.questID or nil
 end
 
 ---
@@ -1027,6 +1368,11 @@ end
 ---
 -- The right click menu of the Group part's entries
 function Core.LeadMenu(root, entry)
+  if entry and entry.kind == "groupOnly" then
+    local only = entry.only or {}
+    root:CreateButton("Abandon all "..#only.." quests only you have", function () Core.AbandonOnlyMine(only) end)
+    return
+  end
   if entry and entry.kind == "groupMissing" then
     local buttons = 0
     for _, one in ipairs(entry.missing or {}) do
@@ -1065,6 +1411,10 @@ local function OnQuests(sender, kind, body)
   others[sender] = quests
   for questID, state in body:gmatch("(%d+)=([^,]+)") do
     questID = tonumber(questID)
+    -- (only the changes: their objectives just done, that you haven't)
+    if kind == "Q:" then
+      for _, index in ipairs(JustDone(quests[questID], state)) do Notice(questID, index, sender) end
+    end
     if state == "-" then quests[questID] = nil else quests[questID] = state end
   end
   -- (the first time someone else has Questmark: what it does, once)
@@ -1155,6 +1505,8 @@ local function OnMessage(prefix, message, _, sender)
   local head = message:sub(1, 2)
   if head == "L:" then
     OnLead(sender, message)
+  elseif head == "P:" then
+    OnPlan(sender, message)
   elseif head == "T:" then
     OnTook(sender, message)
   elseif head == "A:" then
@@ -1211,10 +1563,37 @@ events:SetScript("OnEvent", function (_, event, ...)
       wipe(sent)
       wipe(following)
       members = ""
+      -- (the group over: Quest together and the plan with it. Not while
+      -- logging in, before the game knows the group)
+      if event == "GROUP_ROSTER_UPDATE" then
+        Core.db.char.questTogether, Core.db.char.groupPlan = nil, nil
+        wipe(plan)
+        planDone = 0
+      end
       return
     end
+    -- (back from a /reload or a login, still in the group: Quest together
+    -- on again if it was, and the leader's plan with the quests still had)
+    if event == "PLAYER_ENTERING_WORLD" and not together and Core.db.char.questTogether and Party() then
+      together = true
+      local saved = Core.db.char.groupPlan
+      if saved and UnitIsGroupLeader("player") and #plan == 0 then
+        for _, id in ipairs(saved.ids or {}) do
+          if C_QuestLog.GetLogIndexForQuestID(id) then plan[#plan + 1] = id end
+        end
+        planDone = tonumber(saved.done) or 0
+        if plan[1] then
+          C_Timer.After(2, function ()
+            if plan[1] and Core.CanGuide() then
+              Core.GuideGroup(plan[1])
+              SendPlan(true)
+            end
+          end)
+        end
+      end
+    end
     if lead and lead.leader ~= LeaderName() then Drop() end
-    if lead and lead.mine then lastLead = nil end
+    if lead and lead.mine then lastLead, lastPlan = nil, nil end
     -- (gone from the group: forgotten)
     for name in pairs(others) do
       if not InGroup(name) then others[name] = nil end
@@ -1240,9 +1619,22 @@ events:SetScript("OnEvent", function (_, event, ...)
     -- The leader questing together focuses a quest: the group is guided
     -- there (the flag by a quest does the same)
     if Together() and UnitIsGroupLeader("player") then
-      local questID = C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+      -- (with a plan, the plan leads: focusing another quest doesn't)
+      local questID = #plan == 0 and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
       if questID and questID > 0 and questID ~= Core.GuidedQuest() and C_QuestLog.GetLogIndexForQuestID(questID) then
         Core.GuideGroup(questID)
+      end
+    elseif Core.GroupQuestID() and not lead.mine then
+      -- (following, another quest focused, maybe by mistake: a card to go
+      -- back, at most every 15 seconds)
+      local questID = C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+      local groupID = lead.questID
+      if questID ~= groupID and GetTime() - (leftCardAt or 0) > 15 then
+        leftCardAt = GetTime()
+        Card(lead.leader, "Group quest: "..(lead.title or Title(groupID) or ""), "|cffffffffClick to go back to it|r",
+          nil, nil, 10, function ()
+            if C_QuestLog.GetLogIndexForQuestID(groupID) and Core.FollowQuest then Core.FollowQuest(groupID) end
+          end)
       end
     end
   elseif event == "QUEST_DATA_LOAD_RESULT" then
@@ -1251,7 +1643,12 @@ events:SetScript("OnEvent", function (_, event, ...)
     TurningIn(event)
   elseif IsInGroup() then
     local questID = ...
-    if lead and lead.mine and questID == lead.questID and (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") then
+    if questID and InPlan(questID) and (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") then
+      -- (once, a moment later: both come for a quest turned in)
+      C_Timer.After(0.5, function ()
+        if not C_QuestLog.GetLogIndexForQuestID(questID) then PlanGone(questID) end
+      end)
+    elseif lead and lead.mine and questID == lead.questID and (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") then
       -- (the leader's quest gone: the group isn't guided any more)
       C_Timer.After(0.5, function ()
         if lead and lead.mine and not C_QuestLog.GetLogIndexForQuestID(questID) then Core.GuideGroup(nil) end
@@ -1321,7 +1718,12 @@ function Core.SetQuestTogether(on)
     return
   end
   together = on and true or false
+  Core.db.char.questTogether = together or nil
   if not together then
+    -- (off: the plan ends too)
+    wipe(plan)
+    planDone = 0
+    Core.db.char.groupPlan = nil
     if lead and lead.mine then Send("L:0") end
     Drop()
   else
@@ -1397,6 +1799,21 @@ function Core.GroupTest()
     C_Timer.After(2, function () Card(nil, "Everyone is ready", "to turn in a quest", GREEN, READY) end)
     C_Timer.After(4, function () Card("Rui-Test", "Not everyone is done", "Rui (3/8)", RED) end)
     C_Timer.After(6, function () Card("Ana-Test", "Ana took a quest here", "A quest\n|cff999999Marked on your map|r") end)
+    -- ("she still needs this", both ways: on a quest of yours not done, its
+    -- first objective)
+    C_Timer.After(9, function ()
+      if not testing then return end
+      for questID, state in pairs(Mine()) do
+        local first = Counts(state)[1]
+        if first and first[1] < first[2] and ObjectiveName(questID, 1) then
+          ana[questID] = "0/"..first[2]
+          Notice(questID, 1, nil)
+          ana[questID] = first[2].."/"..first[2]
+          C_Timer.After(2, function () Notice(questID, 1, "Ana-Test") end)
+          break
+        end
+      end
+    end)
   end
   print("|cffdfba69Questmark|r: group test", testing and "on (/qm testgroup again: off)" or "off")
   Core.Refresh()

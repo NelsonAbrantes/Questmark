@@ -10,6 +10,8 @@ local GetTime = GetTime
 local ASSETS = Core.ASSETS
 local COIN = "Interface\\MoneyFrame\\UI-GoldIcon"
 local SKULL = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8"
+local BAG = "Interface\\Icons\\INV_Misc_Bag_08"
+local ITEMS_LISTED = 12 -- items in the loot chip's tooltip (the most worth)
 local ICON = 14
 local PAD = 6           -- inside a chip
 local CHIP_GAP = 6
@@ -268,6 +270,40 @@ function Core.PlaceDungeonStats(card, entry, top, width, animate)
   Size(gold)
   gold:Show()
 
+  -- The items looted (once there are some): what they sell for
+  local loot = Chip(card, "loot", BAG)
+  loot.format = function (value) return (Money(value):gsub("^%+", "")) end
+  local items = entry.items or {}
+  if #items > 0 then
+    SetValue(loot, entry.itemWorth or 0, animate)
+    if not loot.countStart then loot.text:SetText(loot.format(entry.itemWorth or 0)) end
+    loot.tooltip = function ()
+      local count = 0
+      for _, item in ipairs(items) do count = count + item.count end
+      local lines = { "Loot", count.." item"..(count > 1 and "s" or "").." this run" }
+      for i, item in ipairs(items) do
+        if i > ITEMS_LISTED then
+          table.insert(lines, "|cff999999and "..(#items - ITEMS_LISTED).." more|r")
+          break
+        end
+        local name = item.link or ("item "..item.id)
+        table.insert(lines, ("|T%s:0|t %s%s  %s"):format(item.icon or 134400, name,
+          item.count > 1 and (" |cffffffffx"..item.count.."|r") or "",
+          item.value > 0 and Money(item.value):gsub("^%+", "") or ""))
+      end
+      table.insert(lines, "Sells for "..Money(entry.itemWorth or 0):gsub("^%+", ""))
+      if entry.itemAuction then
+        table.insert(lines, "Auction house: "..Money(entry.itemAuction):gsub("^%+", ""))
+      end
+      return lines
+    end
+    Size(loot)
+    loot:Show()
+  else
+    loot.value = 0
+    loot:Hide()
+  end
+
   -- Deaths (once you've died)
   local deaths = Chip(card, "deaths", SKULL)
   deaths.format = function (value) return tostring(math.floor(value + 0.5)) end
@@ -304,11 +340,11 @@ function Core.PlaceDungeonStats(card, entry, top, width, animate)
 
   -- In the middle of the card, side by side
   local total = -CHIP_GAP
-  for _, chip in ipairs({ xp, gold, deaths }) do
+  for _, chip in ipairs({ xp, gold, loot, deaths }) do
     if chip:IsShown() then total = total + chip:GetWidth() + CHIP_GAP end
   end
   x = (width - total) / 2
-  for _, chip in ipairs({ xp, gold, deaths }) do
+  for _, chip in ipairs({ xp, gold, loot, deaths }) do
     if chip:IsShown() then
       chip:ClearAllPoints()
       chip:SetPoint("TOPLEFT", card, "TOPLEFT", x, -top)

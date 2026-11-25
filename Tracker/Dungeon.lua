@@ -180,7 +180,16 @@ local function JournalAddon(name)
     -- (a group's members show only as the group)
     if type(boss) == "table" and type(boss.name) == "string" and not boss.trash and not boss.trackerHidden then
       local display = displays[boss.portraitNpcID or boss.npcID] or boss.displayID
+      -- (its own drops, blue or better: seen in a loot, it died)
+      local drops
+      for _, item in ipairs(type(boss.loot) == "table" and boss.loot or {}) do
+        if type(item) == "table" and type(item[1]) == "number" and (tonumber(item[4]) or 0) >= 3 then
+          drops = drops or {}
+          drops[item[1]] = true
+        end
+      end
       table.insert(bosses, {
+        drops = drops,
         name = boss.name, npcID = tonumber(boss.npcID), display = tonumber(display),
         aliases = type(boss.aliases) == "table" and boss.aliases or nil,
         rare = boss.rare and true or nil,
@@ -292,23 +301,79 @@ local function AtlasLoot(entry, boss)
     end
   end
   if not key then return false end
-  if not frame:IsShown() then frame:Show() end
   local version = data[key].gameVersion
   local saved = AL.db and AL.db.GUI
   if saved and version and version ~= 0 then saved.selectedGameVersion = version end
-  pcall(frame.moduleSelect.SetSelected, frame.moduleSelect, ATLAS_MODULE)
-  pcall(frame.subCatSelect.SetSelected, frame.subCatSelect, key)
-  pcall(frame.boss.SetSelected, frame.boss, bossIndex)
+  -- (its own choice first: opening, AtlasLoot shows what it has saved, and
+  -- choosing the dungeon puts its list back on the first boss. So: saved,
+  -- shown, chosen in order, and the boss chosen again a moment later, once
+  -- AtlasLoot is done with its own)
+  if saved and type(saved.selected) == "table" then
+    saved.selected[1], saved.selected[2], saved.selected[3] = ATLAS_MODULE, key, bossIndex
+  end
+  if not frame:IsShown() then frame:Show() end
+  local function Choose(all)
+    if all then
+      pcall(frame.moduleSelect.SetSelected, frame.moduleSelect, ATLAS_MODULE)
+      pcall(frame.subCatSelect.SetSelected, frame.subCatSelect, key)
+    end
+    pcall(frame.boss.SetSelected, frame.boss, bossIndex)
+  end
+  Choose(true)
+  C_Timer.After(0, function () Choose(false) end)
+  C_Timer.After(0.2, function () Choose(false) end)
   return true
 end
 
 function Core.OpenBossLoot(entry, boss)
   if not entry or not boss then return end
+  -- (a dungeon with sides whose side isn't known yet: each boss on its own
+  -- side's page, not all on the side the game's number points to)
+  local dungeon = boss.side or entry.title
   if Core.db.profile.bossLoot == "atlasloot" then
-    if not AtlasLoot(entry, boss) then JournalLoot(entry.title, boss.name) end
-  elseif not JournalLoot(entry.title, boss.name) then
+    if not AtlasLoot(entry, boss) then JournalLoot(dungeon, boss.name) end
+  elseif not JournalLoot(dungeon, boss.name) then
     AtlasLoot(entry, boss)
   end
+end
+
+-- The bosses a quest of yours wants killed (or something of theirs): boss
+-- name -> the quest's title. By the objectives not done yet naming the boss
+-- ("Baron Rivendare slain", "Head of Baron Rivendare").
+local function BossQuests(bosses)
+  local texts = {}
+  for i = 1, C_QuestLog.GetNumQuestLogEntries() do
+    local info = C_QuestLog.GetInfo(i)
+    local questID = info and not info.isHeader and info.questID
+    if questID and not C_QuestLog.IsComplete(questID) then
+      for _, objective in ipairs(C_QuestLog.GetQuestObjectives(questID) or {}) do
+        local text = objective.text
+        if not objective.finished and Core.Readable(text) and type(text) == "string" then
+          texts[#texts + 1] = { text = text:lower(), title = info.title }
+        end
+      end
+    end
+  end
+  local wanted = {}
+  if #texts == 0 then return wanted end
+  for _, boss in ipairs(bosses or {}) do
+    local names = { boss.name }
+    for _, alias in ipairs(boss.aliases or {}) do names[#names + 1] = alias end
+    for _, name in ipairs(names) do
+      -- (not a name too short to be sure of)
+      if type(name) == "string" and #name >= 5 then
+        local lower = name:lower()
+        for _, one in ipairs(texts) do
+          if one.text:find(lower, 1, true) then
+            wanted[boss.name] = one.title
+            break
+          end
+        end
+      end
+      if wanted[boss.name] then break end
+    end
+  end
+  return wanted
 end
 
 -- Bosses killed in each dungeon before (dungeon name -> names, in the order
@@ -460,6 +525,86 @@ local function EntrySnapshot()
   }
 end
 
+-- The items you carry (bags and worn): itemID -> how many. What's new
+-- inside is the run's loot (worn ones count, so putting gear on or off
+-- isn't loot)
+local held -- (inside: what you had at the last look)
+local questGrace = 0 -- (a quest's reward isn't loot: a moment after turning one in)
+local function Holdings()
+  local have = {}
+  local Container = _G.C_Container
+  if not Container then return have end
+  local bags = _G.NUM_TOTAL_EQUIPPED_BAG_SLOTS or _G.NUM_BAG_SLOTS or 4
+  for bag = 0, bags do
+    for slot = 1, Container.GetContainerNumSlots(bag) or 0 do
+      local info = Container.GetContainerItemInfo(bag, slot)
+      if info and info.itemID then have[info.itemID] = (have[info.itemID] or 0) + (info.stackCount or 1) end
+    end
+  end
+  for slot = 1, 19 do
+    local id = GetInventoryItemID("player", slot)
+    if id then have[id] = (have[id] or 0) + 1 end
+  end
+  return have
+end
+
+-- New in the bags since the last look: added to the run's loot (true if any)
+local function CountLoot(run)
+  local now = Holdings()
+  local before = held
+  held = now
+  if not before or GetTime() < questGrace then return false end
+  local any = false
+  for id, count in pairs(now) do
+    local gain = count - (before[id] or 0)
+    if gain > 0 then
+      -- (not the quests' own items: they're worth nothing and go away)
+      local classID = select(6, C_Item.GetItemInfoInstant(id))
+      if classID ~= (_G.Enum and _G.Enum.ItemClass and _G.Enum.ItemClass.Questitem or 12) then
+        run.items = run.items or {}
+        run.items[id] = (run.items[id] or 0) + gain
+        any = true
+      end
+    end
+  end
+  return any
+end
+
+-- Where you stood outside before a loading screen (a dungeon's door):
+-- { c (continent), x, y (yards in the world), at }
+local lastDoor
+
+local function WorldSpot(mapID, x, y)
+  if not (mapID and x and y and C_Map.GetWorldPosFromMapPos and _G.CreateVector2D) then return nil end
+  local ok, continent, position = pcall(C_Map.GetWorldPosFromMapPos, mapID, _G.CreateVector2D(x, y))
+  if not (ok and continent and position) then return nil end
+  local wx, wy = position:GetXY()
+  return continent, wx, wy
+end
+
+local function NoteDoor()
+  if IsInInstance() then return end
+  local mapID = C_Map.GetBestMapForUnit("player")
+  local position = mapID and C_Map.GetPlayerMapPosition(mapID, "player")
+  if not position then return end
+  local x, y = position:GetXY()
+  if not (Core.Readable(x) and x) then return end
+  local continent, wx, wy = WorldSpot(mapID, x, y)
+  if continent then lastDoor = { c = continent, x = wx, y = wy, at = GetTime() } end
+end
+
+-- (the game may tell no place any more as the loading screen starts: so
+-- also once a second while outside; stopped inside)
+local doorTicker
+local function WatchDoor(outside)
+  if outside and not doorTicker then
+    doorTicker = C_Timer.NewTicker(1, NoteDoor)
+  elseif not outside and doorTicker then
+    doorTicker:Cancel()
+    doorTicker = nil
+  end
+end
+
 local function UpdateInside()
   local inInstance, instanceType = IsInInstance()
   local wasInside = inside
@@ -473,7 +618,13 @@ local function UpdateInside()
     else
       run.seen = time()
     end
+    if not wasInside or not held then held = Holdings() end
     if not wasInside then
+      -- (the door you came in by, if just now: which side, LookForWing)
+      if lastDoor and GetTime() - lastDoor.at < 120 then
+        Run().door = { c = lastDoor.c, x = lastDoor.x, y = lastDoor.y }
+        Run().doorTried = nil
+      end
       Run().entry = EntrySnapshot()
       C_Timer.After(5, Core.ShareDungeonFaces)
     end
@@ -493,6 +644,8 @@ local function UpdateInside()
     Run().icon = better or Run().icon or OWN_ICONS[Run().name]
     Run().iconGray = better and GRAY_ICONS[Run().name] or nil
   end
+  if not inside then held = nil end
+  WatchDoor(not inInstance)
   if inside ~= wasInside then Core:Changed("layout") end
 end
 
@@ -683,11 +836,31 @@ function LookForDeadBosses()
   end
 end
 
+-- An item seen in a loot (or rolled for): the boss it's a drop of died.
+-- (Two fought together, like Izha'Rel and Tor'Rel: the game may never show
+-- them both dead, but their loot shows.)
+local function LookAtDrop(link)
+  if not (type(link) == "string" and Core.Readable(link)) then return end
+  local id = tonumber(link:match("item:(%d+)"))
+  local run = Run()
+  if not (id and run and run.bosses) then return end
+  for _, boss in ipairs(run.bosses) do
+    if boss.drops and boss.drops[id] and not run.killed[boss.name] then
+      Killed(boss.name, nil, nil, true)
+      return
+    end
+  end
+end
+
 -- The corpses whose loot is open
 local function LookInLoot()
   local Count, Source = _G.GetNumLootItems, _G.GetLootSourceInfo
   if not (Count and Source) then return end
   for slot = 1, Count() or 0 do
+    if _G.GetLootSlotLink then
+      local ok, link = pcall(_G.GetLootSlotLink, slot)
+      if ok then LookAtDrop(link) end
+    end
     -- (guid, how many, guid, how many...: an area loot has several corpses)
     local sources = { pcall(Source, slot) }
     if sources[1] then
@@ -722,7 +895,7 @@ local function LookForNewCopy(run)
           new.level, new.lastXP, new.lastMax = entry.level, entry.xp, entry.max
           new.copy, new.entry = copy, entry
           -- (counted from the way in: the quests turned in since then too)
-          new.questXP, new.questMoney = run.questXP, run.questMoney
+          new.questXP, new.questMoney, new.items = run.questXP, run.questMoney, run.items
           SetBosses(new, run.name)
           if not new.bosses then new.bosses, new.guessed = run.bosses, run.guessed end
           new.icon, new.iconGray, new.location, new.levels = run.icon, run.iconGray, run.location, run.levels
@@ -1011,9 +1184,38 @@ function Core.DungeonSection()
   if not AtMaxLevel() then
     entry.xp, entry.xpMax = demo and run.xp or math.max(0, run.xp - (run.questXP or 0)), UnitXPMax("player")
   end
+  -- The loot: each item, how many and what it sells for (the most worth
+  -- first); the auction house's worth too, with Auctionator
+  local items, worth, auction = {}, 0, nil
+  local API = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
+  for id, count in pairs(not demo and run.items or {}) do
+    local name, link, quality, _, _, _, _, _, _, icon, price = C_Item.GetItemInfo(id)
+    if not name and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(id) end
+    -- (not what sells for nothing: a mage's water and food, keys...)
+    if not (name and price == 0) then
+      local value = (price or 0) * count
+      worth = worth + value
+      if API and API.GetAuctionPriceByItemID then
+        local ok, each = pcall(API.GetAuctionPriceByItemID, "Questmark", id)
+        if ok and each then auction = (auction or 0) + each * count end
+      end
+      items[#items + 1] = {
+        id = id, count = count, value = value, link = link, quality = quality or 1,
+        icon = icon or C_Item.GetItemIconByID(id),
+      }
+    end
+  end
+  table.sort(items, function (a, b)
+    if a.value ~= b.value then return a.value > b.value end
+    if a.quality ~= b.quality then return a.quality > b.quality end
+    return a.id < b.id
+  end)
+  entry.items, entry.itemWorth, entry.itemAuction = items, worth, auction
+
+  local quests = not demo and BossQuests(run.bosses) or {}
   for _, boss in ipairs(run.bosses or {}) do
     table.insert(entry.bosses, {
-      name = boss.name, rare = boss.rare, display = boss.display, side = boss.side,
+      name = boss.name, rare = boss.rare, display = boss.display, side = boss.side, quest = quests[boss.name],
       killed = run.killed[boss.name] and true or false,
       killedAt = run.killedAt and run.killedAt[boss.name],
     })
@@ -1035,6 +1237,10 @@ end
 -- Events
 
 events:SetScript("OnEvent", function (_, event, ...)
+  if event == "PLAYER_LEAVING_WORLD" then
+    NoteDoor()
+    return
+  end
   local run = Run()
   if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
     -- (a moment later: the instance's map is known then)
@@ -1062,7 +1268,17 @@ events:SetScript("OnEvent", function (_, event, ...)
   elseif event == "LOOT_OPENED" or event == "LOOT_READY" then
     if run.bosses then LookInLoot() end
     return
+  elseif event == "START_LOOT_ROLL" then
+    local rollID = ...
+    if run.bosses and _G.GetLootRollItemLink then
+      local ok, link = pcall(_G.GetLootRollItemLink, rollID)
+      if ok then LookAtDrop(link) end
+    end
+    return
+  elseif event == "BAG_UPDATE_DELAYED" then
+    if not CountLoot(run) then return end
   elseif event == "QUEST_TURNED_IN" then
+    questGrace = GetTime() + 2
     -- (a quest's experience and gold don't count: only the fighting's)
     local _, xp, money = ...
     run.questXP = (run.questXP or 0) + (tonumber(xp) or 0)
@@ -1084,17 +1300,110 @@ end)
 local WING_UNITS = { "target", "mouseover", "focus", "party1target", "party2target", "party3target", "party4target" }
 for i = 1, 20 do WING_UNITS[#WING_UNITS + 1] = "nameplate"..i end
 
+-- The dungeons with sides in one, and their doors, Questmark's own (for
+-- players without the journal addon): the game's number of the dungeon ->
+-- its sides, and a side -> its door outside { map, x, y } (only doors of
+-- their own: sides sharing a door are learned instead)
+local OWN_WINGS = {
+  [429] = { "Dire Maul: East", "Dire Maul: West", "Dire Maul: North" },
+  [189] = { "Scarlet Monastery: Graveyard", "Scarlet Monastery: Library",
+    "Scarlet Monastery: Armory", "Scarlet Monastery: Cathedral" },
+  [229] = { "Lower Blackrock Spire", "Upper Blackrock Spire" },
+  [329] = { "Stratholme: Living", "Stratholme: Undead" },
+}
+local OWN_DOORS = {
+  ["Stratholme: Living"] = { 1423, 0.300, 0.150 }, -- the main gate
+  ["Stratholme: Undead"] = { 1423, 0.440, 0.190 }, -- the service entrance
+  -- (measured in the game by the journal addon)
+  ["Scarlet Monastery: Library"] = { 1420, 0.8535, 0.3239 },
+  ["Scarlet Monastery: Graveyard"] = { 1420, 0.8480, 0.3037 },
+}
+
 local function LookForWing(run)
   if not run or not run.id or JournalDungeon(run.name) then return end
   local journal = _G.ForeverDungeonJournal_NS
-  local groups = type(journal) == "table" and journal.RunLogWingGroups
-  local trash = type(journal) == "table" and journal.RunLogWingTrash
-  local wings = type(groups) == "table" and groups[run.id]
+  if type(journal) ~= "table" then journal = {} end
+  local groups = type(journal.RunLogWingGroups) == "table" and journal.RunLogWingGroups or OWN_WINGS
+  local trash = journal.RunLogWingTrash
+  local wings = groups[run.id] or OWN_WINGS[run.id]
   if type(wings) ~= "table" then return end
+  -- (known already: without the journal addon its name says it)
+  for _, wing in ipairs(wings) do
+    if run.name == wing then return end
+  end
+  -- The doors learned: the side found, the door you came in by is
+  -- remembered for it (for every character); a door two sides were
+  -- entered by tells nothing
+  local DOOR_NEAR = 30 -- yards
+  Core.db.global.wingDoors = Core.db.global.wingDoors or {}
+  local doors = Core.db.global.wingDoors[run.id] or {}
+  local function Near(a, b)
+    return a.c == b.c and (a.x - b.x) ^ 2 + (a.y - b.y) ^ 2 < DOOR_NEAR * DOOR_NEAR
+  end
   local function Found(wing)
     run.name = wing
+    local door = run.door
+    if door then
+      local known
+      for _, one in ipairs(doors) do
+        if Near(one, door) then
+          known = true
+          if one.wing ~= wing then one.wing = false end
+        end
+      end
+      if not known then
+        doors[#doors + 1] = { c = door.c, x = door.x, y = door.y, wing = wing }
+        Core.db.global.wingDoors[run.id] = doors
+      end
+    end
     UpdateInside()
     Core.Refresh()
+  end
+  -- (the door you came in by: once, as learned, else the journal addon's
+  -- entrances when the sides have their own)
+  if run.door and not run.doorTried then
+    run.doorTried = true
+    for _, one in ipairs(doors) do
+      if one.wing and Near(one, run.door) then
+        Found(one.wing)
+        return
+      end
+    end
+    local db = type(journal.DB) == "table" and journal.DB
+    local best, bestDistance, spots, second, every = nil, nil, {}, nil, true
+    for _, wing in ipairs(wings) do
+      local entrance = db and type(db[wing]) == "table" and db[wing].entrance
+      local own = OWN_DOORS[wing]
+      local c, x, y
+      if own then
+        c, x, y = WorldSpot(own[1], own[2], own[3])
+      elseif type(entrance) == "table" then
+        c, x, y = WorldSpot(entrance.mapID, entrance.x, entrance.y)
+      end
+      if not c then every = false end
+      if c then
+        local key = math.floor(x)..":"..math.floor(y)
+        spots[key] = (spots[key] or 0) + 1
+        if c == run.door.c then
+          local distance = math.sqrt((x - run.door.x) ^ 2 + (y - run.door.y) ^ 2)
+          if not bestDistance or distance < bestDistance then
+            if best and best.key ~= key then second = bestDistance end
+            best, bestDistance = { wing = wing, key = key }, distance
+          elseif key ~= best.key and (not second or distance < second) then
+            second = distance
+          end
+        end
+      end
+    end
+    -- (only an entrance of its own, and close: within 60 yards; or, every
+    -- side's door known (Stratholme's two gates, far apart), far nearer
+    -- the one than the others)
+    local sure = best and spots[best.key] == 1 and (bestDistance < 60
+      or (every and second and bestDistance < 300 and second > bestDistance * 3))
+    if sure then
+      Found(best.wing)
+      return
+    end
   end
   -- (the journal addon's open run here, with its side)
   local saved = _G.ForeverDungeonJournalCharacterDB
@@ -1213,7 +1522,7 @@ Core:OnChange(function (key)
       "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
       "ENCOUNTER_END", "BOSS_KILL",
       "PLAYER_XP_UPDATE", "PLAYER_LEVEL_UP", "PLAYER_MONEY", "QUEST_TURNED_IN",
-      "PLAYER_REGEN_ENABLED", "LOOT_OPENED", "LOOT_READY",
+      "PLAYER_REGEN_ENABLED", "LOOT_OPENED", "LOOT_READY", "START_LOOT_ROLL", "BAG_UPDATE_DELAYED", "PLAYER_LEAVING_WORLD",
     }) do
       pcall(events.RegisterEvent, events, event)
     end

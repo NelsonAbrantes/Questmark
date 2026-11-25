@@ -179,7 +179,7 @@ local headers = Pool(function ()
     -- (right click Quests in a party: Quest together, GroupLead.lua)
     if button == "RightButton" then
       if self.key == "quests" and Core.SetQuestTogether and _G.IsInGroup() and _G.MenuUtil then
-        _G.MenuUtil.CreateContextMenu(self, function (_, root)
+        _G.MenuUtil.CreateContextMenu(UIParent, function (_, root)
           root:CreateCheckbox("Quest together", Core.QuestTogether, function () Core.SetQuestTogether() end)
         end)
       end
@@ -281,8 +281,8 @@ local function PlaceZone(entry, y, collapsed)
   label.line:SetShown(not collapsed)
   label.text:SetWidth(content:GetWidth() - ZONE_ICON - 8)
   -- (a dungeon or raid: the game's mark for it after its name)
-  local name = entry.zone
-  local instance = Core.IsDungeonZone and Core.IsDungeonZone(name)
+  local name = entry.label or entry.zone
+  local instance = not entry.label and Core.IsDungeonZone and Core.IsDungeonZone(name)
   if instance then
     local Atlas = _G.C_Texture and _G.C_Texture.GetAtlasInfo
     -- (the game's picture has room around it: a little bigger than the letters)
@@ -667,7 +667,7 @@ local function PlaceBlock(entry, y, changes)
   local flagRoom = Core.GroupFlag and Core.GroupFlag(block) and 16 or 0
   -- (and the others' faces, right of the name: no line of their own)
   local faces = entry.faces
-  local faceSize = math.floor(Profile().headerFontSize + 1)
+  local faceSize = math.floor(Profile().headerFontSize + 5)
   local facesRoom = 0
   if (faces or block.faceRow) and Core.DrawFaces then
     block.faceRow = block.faceRow or CreateFrame("Frame", nil, block)
@@ -1134,7 +1134,9 @@ local function Menu(block)
   local MenuUtil = _G.MenuUtil
   local entry = block.entry
   if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
-  MenuUtil.CreateContextMenu(block, function (_, root)
+  -- (UIParent's: the tracker drawn again, or faded away by another addon,
+  -- doesn't close it)
+  MenuUtil.CreateContextMenu(UIParent, function (_, root)
     root:CreateTitle(entry.title)
     if entry.kind == "quest" then
       root:CreateButton(entry.super and "Stop following" or "Follow", function () Follow(entry.id) end)
@@ -1146,11 +1148,16 @@ local function Menu(block)
         root:CreateButton("Share", function () Share(entry.id) end)
       end
       if Core.CanGuide and Core.CanGuide() then
-        if Core.GuidedQuest() == entry.id then
+        local planned = Core.GroupPlan() and Core.InGroupPlan(entry.id)
+        if planned then
+          root:CreateButton("Take out of the group plan", function () Core.PlanRemove(entry.id) end)
+        elseif Core.GuidedQuest() == entry.id then
           root:CreateButton("Stop guiding the group", function () Core.GuideGroup(nil) end)
         else
-          root:CreateButton("Guide the group here", function () Core.GuideGroup(entry.id) end)
+          root:CreateButton(Core.GroupPlan() and "Add to the group plan" or "Guide the group here",
+            function () Core.PlanAdd(entry.id) end)
         end
+        if Core.GroupPlan() then root:CreateButton("Clear the group plan", Core.PlanClear) end
       end
       root:CreateButton("Stop tracking", function () Untrack(entry) end)
       if C_QuestLog.CanAbandonQuest == nil or C_QuestLog.CanAbandonQuest(entry.id) then
@@ -1166,7 +1173,7 @@ local function Menu(block)
       root:CreateButton("Start the run again", Core.RestartDungeonRun)
     elseif entry.kind == "prep" then
       root:CreateButton("Hide", function () Core.HidePrep(entry.id) end)
-    elseif entry.kind == "lead" or entry.kind == "groupMissing" then
+    elseif entry.kind == "lead" or entry.kind == "groupMissing" or entry.kind == "groupOnly" then
       Core.LeadMenu(root, entry)
     end
   end)
@@ -1187,6 +1194,11 @@ function ClickEntry(block, button)
   -- the menu to ask for one)
   if entry.kind == "groupMissing" then
     if Core.ToggleGroupMissing and entry.missing and #entry.missing > 0 then Core.ToggleGroupMissing() end
+    return
+  end
+  -- (your quests the others don't have: the list opened or closed)
+  if entry.kind == "groupOnly" then
+    if Core.ToggleGroupOnly then Core.ToggleGroupOnly() end
     return
   end
   if entry.kind == "dungeon" or entry.kind == "prep" then return end

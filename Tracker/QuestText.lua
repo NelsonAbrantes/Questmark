@@ -543,9 +543,18 @@ local function UpdateButtons()
   -- (the group's leader: Guide group, GroupLead.lua)
   if pageButtons[5] then
     pageButtons[5]:SetShown(Core.CanGuide and Core.CanGuide() or false)
-    pageButtons[5].label:SetText(Core.GuidedQuest and Core.GuidedQuest() == questID and "Stop guiding" or "Guide group")
+    local plan = Core.GroupPlan and Core.GroupPlan()
+    local words = "Guide group"
+    if plan and Core.InGroupPlan(questID) then
+      words = "Out of plan"
+    elseif Core.GuidedQuest and Core.GuidedQuest() == questID then
+      words = "Stop guiding"
+    elseif plan then
+      words = "Add to plan"
+    end
+    pageButtons[5].label:SetText(words)
   end
-  local width = -BUTTON_GAP
+  local words, shown = 0, {}
   for _, button in ipairs(pageButtons) do
     if button:IsShown() then
       -- (the titles' font reaches past its own measure: room so no letter is cut)
@@ -554,10 +563,26 @@ local function UpdateButtons()
       label:SetWidth(textWidth)
       button:SetWidth(textWidth)
       button:Paint()
-      width = width + button:GetWidth() + BUTTON_GAP
+      words = words + textWidth
+      shown[#shown + 1] = button
     end
   end
+  -- Within the page: the gaps narrower when they don't fit (five buttons
+  -- with Guide group), then all of them a little smaller
+  local room = math.max(100, (rightContent:GetWidth() or 0) - 24)
+  local gaps = math.max(0, #shown - 1)
+  local gap = gaps > 0 and math.max(10, math.min(BUTTON_GAP, (room - words) / gaps)) or 0
+  for i, button in ipairs(shown) do
+    button:ClearAllPoints()
+    if i == 1 then
+      button:SetPoint("LEFT")
+    else
+      button:SetPoint("LEFT", shown[i - 1], "RIGHT", gap, 0)
+    end
+  end
+  local width = words + gap * gaps
   bar:SetWidth(math.max(1, width))
+  bar:SetScale(width > room and room / width or 1)
 end
 
 local function BuildButtons()
@@ -577,8 +602,8 @@ local function BuildButtons()
     { "Share", function (questID) Core.ShareQuest(questID) end },
     { "Abandon", function (questID) Core.AbandonQuest(questID) end },
     { "Guide group", function (questID)
-      if not Core.GuideGroup then return end
-      Core.GuideGroup(Core.GuidedQuest() ~= questID and questID or nil)
+      if not Core.PlanToggle then return end
+      Core.PlanToggle(questID)
       _G.C_Timer.After(0.1, UpdateButtons)
     end },
   }

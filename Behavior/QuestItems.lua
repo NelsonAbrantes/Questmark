@@ -15,7 +15,8 @@ local CreateFrame = CreateFrame
 -- Quest items left in the bags after their quest: one for a quest you turned
 -- in (and no longer have), or one no quest you have asks for. Its tooltip
 -- says so and, with Baganator, a mark shows in a corner of the item (its
--- option: Corner icons). Never an item that starts a quest you haven't done.
+-- option: Corner icons). Never an item that starts a quest you haven't done,
+-- nor an item to use (a quest's tool): in doubt, never marked.
 -- It can't know about a quest you haven't taken yet that would need it, so
 -- it says "probably". Nothing runs until an item's tooltip shows or
 -- Baganator draws the bags.
@@ -32,6 +33,7 @@ local function On() return Core.db.profile.questItemMarks ~= false end
 -- goes. Nil while the quest log isn't there yet, or a text can't be read:
 -- then nothing is marked.
 local asked, dirty = nil, true
+local special = {} -- the items the quests you have give to use: itemID -> true
 
 -- (the game gives a quest's texts for the quest selected in its log: chosen
 -- for a moment, then the one before put back)
@@ -51,9 +53,16 @@ local function Asked()
   local count = C_QuestLog.GetNumQuestLogEntries()
   if count == 0 then return nil end
   local parts = {}
+  local GetSpecial = _G.GetQuestLogSpecialItemInfo
+  special = {}
   for i = 1, count do
     local info = C_QuestLog.GetInfo(i)
     if info and not info.isHeader and info.questID then
+      -- (the item a quest gives to use, its button in the tracker)
+      local ok, link = false, nil
+      if GetSpecial then ok, link = pcall(GetSpecial, i) end
+      local id = ok and type(link) == "string" and Core.Readable(link) and tonumber(link:match("item:(%d+)"))
+      if id then special[id] = true end
       for _, objective in ipairs(C_QuestLog.GetQuestObjectives(info.questID) or {}) do
         if not Core.Readable(objective.text) then return nil end
         if objective.text then parts[#parts + 1] = objective.text end
@@ -65,7 +74,9 @@ local function Asked()
     end
   end
   dirty = false
-  asked = table.concat(parts, "\n"):lower()
+  -- (lower case, without spaces or marks: a quest may write "Moon Well"
+  -- for the item "Moonwell")
+  asked = table.concat(parts, "\n"):lower():gsub("[%s%p]", "")
   return asked
 end
 
@@ -81,15 +92,26 @@ local function Unneeded(bag, slot)
     -- its quest: needed while you have it; a quest not done yet, it starts
     if C_QuestLog.GetLogIndexForQuestID(questID) then return false end
     local done = C_QuestLog.IsQuestFlaggedCompleted and C_QuestLog.IsQuestFlaggedCompleted(questID)
-    return done and true or false
+    if not done then return false end
   end
-  -- no quest of its own: needed while a quest you have names it anywhere
+  -- In doubt, never marked: telling to throw away an item a quest needs
+  -- spoils the quest; missing a mark costs nothing.
   local itemID = C_Container.GetContainerItemID(bag, slot)
-  local name = itemID and C_Item.GetItemNameByID(itemID)
-  if not (Core.Readable(name) and name) then return nil end
+  if not itemID then return false end
+  -- an item to use ("Use: sketch a location...", "Use: douses the
+  -- flames..."): a quest's tool, maybe for one still to come
+  local GetSpell = (C_Item and C_Item.GetItemSpell) or _G.GetItemSpell
+  if GetSpell and GetSpell(itemID) then return false end
   local texts = Asked()
   if not texts then return nil end
-  return not texts:find(name:lower(), 1, true)
+  -- the item a quest you have gives to use
+  if special[itemID] then return false end
+  -- needed while a quest you have names it anywhere (also one whose own
+  -- quest is done: the next quest of the chain may ask for it), compared
+  -- without spaces or marks ("Moon Well" for "Moonwell")
+  local name = C_Item.GetItemNameByID(itemID)
+  if not (Core.Readable(name) and name) then return nil end
+  return not texts:find((name:lower():gsub("[%s%p]", "")), 1, true)
 end
 
 ----

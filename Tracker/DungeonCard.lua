@@ -251,6 +251,13 @@ local function Cell(i)
     cell.sparks[n] = spark
   end
 
+  -- A quest of yours wants this boss: the game's "!" at its top right
+  cell.quest = cell:CreateTexture(nil, "OVERLAY", nil, 7)
+  cell.quest:SetTexture("Interface\\GossipFrame\\AvailableQuestIcon")
+  cell.quest:SetSize(SIZE * 0.42, SIZE * 0.42)
+  cell.quest:SetPoint("CENTER", cell, "TOPRIGHT", -SIZE * 0.12, -SIZE * 0.12)
+  cell.quest:Hide()
+
   cell.time = cell:CreateFontString(nil, "OVERLAY")
   cell.time:SetFontObject(fonts.zone)
   cell.time:SetPoint("TOP", cell, "BOTTOM", 0, -1)
@@ -263,6 +270,7 @@ local function Cell(i)
     local r, g, b = Core:CardColor()
     GameTooltip:AddLine(boss.name, r, g, b)
     if boss.rare then GameTooltip:AddLine("Rare", SILVER[1], SILVER[2], SILVER[3]) end
+    if boss.quest then GameTooltip:AddLine("Quest: "..boss.quest, 1, 0.82, 0) end
     -- (the side isn't known yet: all sides' bosses are shown)
     if boss.side then GameTooltip:AddLine(boss.side, 0.7, 0.7, 0.7) end
     if boss.killed then
@@ -622,6 +630,7 @@ function Core.PlaceDungeonCard(entry, y, isNew)
         cell:SetPoint("TOPLEFT", card, "TOPLEFT", (width - rowWidth) / 2 + column * (SIZE + GAP),
           -(top + row * rowHeight))
         SetPortrait(cell, boss)
+        cell.quest:SetShown(boss.quest ~= nil)
         cell.time:SetText(boss.killed and boss.killedAt and Clock(boss.killedAt) or "")
         -- Just died: its animation; else how it is
         local justDied = boss.killed and before and before.name == boss.name and not before.killed
