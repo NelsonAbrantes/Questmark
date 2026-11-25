@@ -2,6 +2,29 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.4.2 (beta)
+
+**New: Group plan**
+- Line up several quests for the party: they're done in order, and the plan survives a reload.
+- Cards tell you when a party member still needs an objective you've finished, and when they've finished one.
+- Quests only you have: listed, and can all be abandoned at once.
+
+**Quest Together**
+- The group quest stays pinned on top, with a card to get back to it.
+- Party portraits show their progress; those behind are greyed with a count.
+
+**Dungeons**
+- Loot value: the items you looted and what they sell for.
+- Bosses your quests need are marked with a "!".
+- Clicking a boss opens its own loot.
+- Dire Maul and Scarlet Monastery sides are found by the door you used, with or without the Dungeon Journal.
+- Bosses fought in pairs are recognized by their loot.
+
+**Fixes**
+- Quest items still needed are no longer flagged as unneeded.
+- The quest menu no longer closes by itself.
+- The quest book's buttons fit the page.
+
 ## 0.4.1 (beta)
 
 **New: Quest Together**
