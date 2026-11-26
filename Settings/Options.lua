@@ -254,6 +254,9 @@ local function Build()
     { "journal", "ForeverDungeonJournal" },
     { "atlasloot", "AtlasLoot" },
   }, "The addon a click on a boss in the dungeon card opens on that boss's loot (if it isn't installed, the other one)")
+  Checkbox(category, "mapTrackedOnly", "Map shows tracked quests only", "The world map shows no marker for a quest you stopped tracking (the quest you follow always shows). Track it again to see it on the map")
+  Checkbox(category, "rollResults", "Group roll results", "When a roll of your group ends, a small card shows who chose Need, Greed or Pass, the number each one rolled, and who won. Drag it to move it, right-click to close it")
+  Checkbox(category, "rollWindows", "Roll windows", "Under each window to choose Need, Greed or Pass: how many chose what so far and your own number (the mouse on it lists who). The windows can be moved in Edit Mode (\"Questmark: loot rolls\")")
   Checkbox(category, "questItemMarks", "Quest items no longer needed", "Quest items left in your bags after their quest say so in their tooltip. With Baganator, a red cross can show on them too: turn on \"Questmark: quest item no longer needed\" in its Corner icons")
   Checkbox(category, "completeSound", "Sound on complete", "A discreet sound when a quest objective is done, and another when a quest is ready to turn in")
   Checkbox(category, "orcVoice", "Worker voice on quest complete", "When a quest is ready to turn in, a worker of your faction speaks instead of the usual sound: the orc peon's \"Work complete!\" for the Horde, the human peasant's \"Job's done!\" for the Alliance. Needs Sound on complete")

@@ -478,10 +478,11 @@ function Core.QuestSection()
   for _, zone in ipairs(collapsedOrder) do
     table.insert(section.entries, { kind = "collapsedZone", key = "c:"..zone, zone = zone, count = hiddenCount[zone] })
   end
-  -- Minimized zones with no tracked quest left are forgotten (not the ones
-  -- only left out inside a dungeon)
+  -- Minimized zones with no quest left in the quest log are forgotten. Not
+  -- the ones only left out for now (inside a dungeon, or by a filter turned
+  -- on for a moment: turned off again, the zone was open)
   for zone in pairs(collapsed) do
-    if not zonesTracked[zone] then collapsed[zone] = nil end
+    if not (zonesTracked[zone] or zoneOrder[zone]) then collapsed[zone] = nil end
   end
   return Pin(section)
 end

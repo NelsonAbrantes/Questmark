@@ -45,6 +45,8 @@ Behavior\Fade.lua
 Behavior\Sounds.lua
 Behavior\ZoneFilter.lua
 Behavior\QuestItems.lua
+Behavior\MapPins.lua
+Behavior\Rolls.lua
 Behavior\AutoQuests.lua
 Behavior\FollowNext.lua
 Behavior\GroupLead.lua

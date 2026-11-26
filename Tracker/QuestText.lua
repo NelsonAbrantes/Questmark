@@ -404,18 +404,67 @@ local function RewardButton(i)
   -- game's "at the mouse" only puts it there once (then it stayed in
   -- place): moved here while the mouse is over the reward, only if it moved
   local lastX, lastY
+  -- The comparison with what you wear (Shift, or always): the game places
+  -- its tooltips beside the item's once, for where it was then (then they
+  -- overlapped). Placed here: on the right of the item's, side by side,
+  -- or on its left when the screen has no room on the right
+  local wanted -- the point the first one is placed by: "TOPLEFT" (right side) or "TOPRIGHT"
+  local function Compare(tooltip)
+    local one, two = _G.ShoppingTooltip1, _G.ShoppingTooltip2
+    if not (one and one:IsShown()) then return end
+    local both = two and two:IsShown()
+    local need = (one:GetWidth() + (both and two:GetWidth() or 0)) * one:GetEffectiveScale()
+    local right = (tooltip:GetRight() or 0) * tooltip:GetEffectiveScale()
+    local screen = _G.UIParent:GetRight() * _G.UIParent:GetEffectiveScale()
+    local onRight = right + need <= screen
+    wanted = onRight and "TOPLEFT" or "TOPRIGHT"
+    one:ClearAllPoints()
+    if onRight then
+      one:SetPoint("TOPLEFT", tooltip, "TOPRIGHT")
+    else
+      one:SetPoint("TOPRIGHT", tooltip, "TOPLEFT")
+    end
+    if both then
+      two:ClearAllPoints()
+      if onRight then
+        two:SetPoint("TOPLEFT", one, "TOPRIGHT")
+      else
+        two:SetPoint("TOPRIGHT", one, "TOPLEFT")
+      end
+    end
+  end
+  -- (the game places them again when Shift is pressed: placed back)
+  local function Placed(tooltip)
+    local one, two = _G.ShoppingTooltip1, _G.ShoppingTooltip2
+    if not (one and one:IsShown()) then return true end
+    local point, to = one:GetPoint(1)
+    if point ~= wanted or to ~= tooltip then return false end
+    if two and two:IsShown() then
+      local _, to2 = two:GetPoint(1)
+      if to2 ~= one then return false end
+    end
+    return true
+  end
   local function Follow()
     local tooltip = _G.GameTooltip
     local x, y = _G.GetCursorPosition()
-    if x == lastX and y == lastY then return end
+    if x == lastX and y == lastY then
+      if not Placed(tooltip) then Compare(tooltip) end
+      return
+    end
     lastX, lastY = x, y
     local scale = tooltip:GetEffectiveScale()
     tooltip:ClearAllPoints()
     tooltip:SetPoint("BOTTOMLEFT", _G.UIParent, "BOTTOMLEFT", x / scale + 12, y / scale + 12)
+    Compare(tooltip)
   end
   button:SetScript("OnEnter", function (self)
     local tooltip = _G.GameTooltip
     tooltip:SetOwner(self, "ANCHOR_NONE")
+    -- (put where it goes first: the game places the comparison when the
+    -- item is set)
+    lastX, lastY = nil, nil
+    Follow()
     if self.link then
       -- (a quest turned in: its item, kept)
       pcall(tooltip.SetHyperlink, tooltip, self.link)
@@ -426,9 +475,8 @@ local function RewardButton(i)
     else
       pcall(tooltip.SetQuestLogItem, tooltip, self.kind, self.index, selected)
     end
-    lastX, lastY = nil, nil
-    Follow()
     tooltip:Show()
+    Compare(tooltip)
     if Core.BookPadEnter then Core.BookPadEnter(self, textScroll) end
     self:SetScript("OnUpdate", Follow)
   end)
