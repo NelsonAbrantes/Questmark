@@ -2,6 +2,19 @@
 
 Versions are named `X.Y.Z`: `0.x` while in beta.
 
+## 0.5.0 (beta)
+
+**New: Group rolls**
+- A window with everyone's roll numbers and the winner, for each item.
+- The roll windows show your number, how many chose each option and who.
+- Roll windows can be moved in Edit Mode.
+
+**Map**
+- The map shows only the quests you track (option).
+
+**Fixes**
+- Item comparisons no longer cover the reward tooltip.
+- Minimized zones stay minimized after a dungeon.
 ## 0.4.2 (beta)
 
 **New: Group plan**
